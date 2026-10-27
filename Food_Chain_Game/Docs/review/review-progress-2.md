@@ -979,3 +979,10 @@ Unity MCP 연결 상태에서 진행(컴파일·씬 확인·플레이 모드 확
 
 4. **[RoomManager.cs] 2판째 시작 때 `NetworkClient can't AddPlayer before being ready`** — 원인: 로비 복귀 때 각 연결이 준비(Ready)되면 `NetworkRoomManager.OnServerReady → SceneLoadedForPlayer`가 RoomPlayer를 `pendingPlayers`에 쌓는다. Mirror 기본 흐름에서는 전원이 준비 표시를 하면 `CheckReadyToBegin`이 이 목록을 비우지만, 우리는 방장 버튼(`TryStartGame`)으로 시작하고 게임 후 로비에서는 준비 표시도 다시 하지 않아 목록이 남았다. 게임 씬 로딩이 끝나면 `OnServerSceneChanged`가 남은 목록으로 각 클라이언트가 새 씬에서 준비되기 **전에** 게임 캐릭터를 만들고(`ReplacePlayerForConnection`), 방장 클라이언트는 아직 준비 전이라 경고가 떴다. 첫 판은 방장이 RoomPlayer가 생기기 전에 준비되고 참여자의 자동 준비 표시가 목록을 비워서 괜찮았다. 수정: `StartGameDelayed`에서 `ServerChangeScene(GameplayScene)` 직전에 `pendingPlayers.Clear()`(Mirror 기본 흐름과 같은 처리). 이제 각 연결이 게임 씬에서 준비될 때(`OnServerReady`) 캐릭터가 만들어진다
 - 확인: 재컴파일 에러 없음. 메인 에디터 혼자 실제 Node 서버로 방 생성 → 게임 → 로비 복귀 → 2판째 시작: 시작 직전 `pendingPlayers` 1개(원인 재현) → 경고 없이 `OnRoomServerSceneChanged` 뒤에 캐릭터 생성, 콘솔 에러·경고 없음. 여러 명으로는 확인하지 않음
+
+## [2026-10-27] 빌드 실패: URP Compatibility Mode
+
+사용자 보고: Build And Run이 `BuildFailedException: Compatibility Mode is enabled in Project Settings, but this feature is deprecated from Unity 6.0, and the setting is hidden in Unity 6.3`으로 실패.
+
+1. **[Assets/UniversalRenderPipelineGlobalSettings.asset] Render Graph 호환 모드 끔** — 원인: Unity 2022.3 → 6000.3 업그레이드(`3f9dc04`) 때 URP 전역 설정의 `RenderGraphSettings.m_EnableRenderCompatibilityMode`가 1로 옮겨졌다. Unity 6.3에서는 이 설정이 Project Settings에서 숨겨져 있고, 켜져 있으면 `URPPreprocessBuild`가 빌드를 막는다. 프로젝트에 직접 만든 `ScriptableRenderPass`/`ScriptableRendererFeature`가 없어 Render Graph로 바꿔도 깨질 코드가 없으므로, `URP_COMPATIBILITY_MODE` 정의를 추가하는 대신 호환 모드를 끄고 Render Graph를 쓰도록 함. MCP `execute_code`로 `GraphicsSettings.GetRenderPipelineSettings<RenderGraphSettings>()`의 값을 false로 바꾸고 저장(파일에서 1 → 0만 바뀜)
+- 확인: MCP로 Windows 64비트 빌드(빌드 설정의 활성 씬) → `Build Finished, Result: Success`. 빌드한 게임을 실행해 2D 조명·시야 마스크가 에디터와 같은지는 확인하지 않음. 테스트: review-tests-2.md RGRAPH
