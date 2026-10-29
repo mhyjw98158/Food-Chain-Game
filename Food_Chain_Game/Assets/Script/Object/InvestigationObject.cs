@@ -65,18 +65,7 @@ public class InvestigationObject : MonoBehaviour
 
         if (!enabled) SetHighlight(false);
     }
-    private void OnMouseDown()
-    {
-        if (_localPlayerInRange == null) return;
-        TryInteract();
-    }
-
-    private void TryInteract()
-    {
-        if (_localPlayerInRange == null) return;
-
-        _localPlayerInRange.TryStartInvestigation();
-    }
+    // 상호작용 키로만 시작한다(PlayerMove.Interaction → Scanner). 오브젝트 클릭으로는 시작하지 않는다
 
     public void OnPlayerEnter(GamePlayer player)
     {

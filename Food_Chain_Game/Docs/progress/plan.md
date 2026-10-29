@@ -3,6 +3,7 @@
 `progress.md`, `node-server-checklist.md`, `important.md`, `Docs/review/review-plan.md`에 흩어져 있던 남은 작업 중 **플레이 테스트를 뺀 것**을 순서대로 정리했다.
 플레이 테스트는 `Docs/review/review-tests*.md`에서 따로 관리한다. 끝난 항목은 이 문서에서 지우고 `progress.md`의 "끝난 작업"에 한 줄로 남긴다.
 
+- 게임 완성에 필요한 큰 기능·디테일(회의·투표, 결과 화면, 방장 설정, 아트·사운드 등) 후보는 `game-completion.md`. 하기로 정한 것만 이 문서로 옮긴다
 - 진행 방식: 단계 안에서도 항목 하나씩 끝내고 확인받는다(CLAUDE.md). ★ = 시작 전에 사용자 결정 필요
 - 순서 기준: ① 지금 바로 고칠 수 있는 버그 → ② 결정이 필요한 것 → ③ 기능 → ④ 서버·네트워크 → ⑤ 테스트 통과 후 리팩토링 → ⑥ 출시 전
 
@@ -10,7 +11,9 @@
 
 ## 1단계 — 바로 고칠 수 있는 버그·정리
 
-- (현재 없음. 새로 발견한 작은 버그는 여기에 추가)
+### 테스트 후 개선사항 정리 (2026-10-30, 위에서부터 순서대로)
+- (테스트 후 개선사항 9개 처리 완료, 2026-10-30)
+- [ ] 서버가 30초 대기 후 시작한 다음에 늦게 들어온 플레이어는 플레이어 목록·미션 배정(`GameMamager.InitPlayers`)에서 빠짐 → 끊을지, 늦게라도 넣을지 정하기 ★ (보통은 타임아웃 30초로 그 전에 끊김)
 
 ## 2단계 — 사용자 결정이 필요한 것 ★
 
@@ -24,7 +27,10 @@
 ## 3단계 — 기능·리소스
 
 - [ ] **의상 그림 넣기** — `Assets/Data/Costume/Costume_○○.asset`의 `bodySprite`(+ 필요 시 `overlaySprite`, `icon`). 방법은 `handoff.md`
-- [ ] 위장·예측 오브젝트 임시 그림 교체
+- [ ] 위장·예측 오브젝트, 로비 커스터마이징 오브젝트(`GameRoom` 씬 `Room Map/Customize Object`, 갈색 사각형) 임시 그림 교체
+- [ ] 시작 연출 직업 일러스트 그림 넣기 — `GamePlay` 씬 `GamePlayUI`의 `Role Illustrations`(동물 → 그림). 없으면 내 캐릭터 모습으로 대신 보임
+- [ ] 시작 연출 능력 설명 문구 확인·수정(`CharacterData.cs`의 `AbilityDescription`, 임시 작성)
+- [ ] 귓속말 알림음 넣기 — 지금은 코드로 만든 임시 소리. `GamePlay` 씬 `Chat UI/Channel Button`의 `ChatChannelToggle.alertClip`에 넣으면 바뀜
 - [ ] 음성 스피커 아이콘 임시 이미지(`Assets/Sprite/UI/SpeakerIcon_Temp.png`) 교체
 - [ ] 미니맵 2차 기능(선택): 탐험한 영역만 보이는 안개, 사냥·미션 알림 깜빡임 — `Docs/prompt/minimap.md` 5번
 - [ ] 음성 사소한 문제: 결과 화면 전환 때 약 2.4초 끊김

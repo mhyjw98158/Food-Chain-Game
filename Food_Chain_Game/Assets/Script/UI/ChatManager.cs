@@ -34,6 +34,8 @@ public class ChatManager : NetworkBehaviour
 
     public TMP_InputField chatInputField;
 
+    [Tooltip("게임 씬 채팅창의 채널 목록 + 버튼. 목록이 숨겨진 동안 귓속말을 받으면 알린다(로비에는 없음)")]
+    [SerializeField] private ChatChannelToggle channelToggle;
     [Tooltip("채널 하나에 보관·표시하는 최대 메시지 수. 넘으면 오래된 것부터 지운다")]
     [SerializeField] private int maxMessagesPerChannel = 100;
     [SerializeField] private string allTabLabel = "전체";
@@ -360,5 +362,10 @@ public class ChatManager : NetworkBehaviour
         }
 
         AppendMessage(channel, $"<color=#888888>{Sanitize(speakerName)} : {Sanitize(message)}</color>");
+
+        // 내가 보낸 귓속말은 알리지 않는다
+        bool sentByMe = NetworkClient.localPlayer != null && NetworkClient.localPlayer.netId == speakerNetId;
+        if (!sentByMe && channelToggle != null)
+            channelToggle.NotifyWhisperReceived();
     }
 }

@@ -442,7 +442,7 @@ Canvas:
   m_VertexColorAlwaysGammaSpace: 0
   m_AdditionalShaderChannelsFlag: 25
   m_UpdateRectTransformForStandalone: 0
-  m_SortingLayerID: 0
+  m_SortingLayerID: 1304827213
   m_SortingOrder: 0
   m_TargetDisplay: 0
 --- !u!225 &8748282984081238491
@@ -607,8 +607,8 @@ Canvas:
   m_VertexColorAlwaysGammaSpace: 0
   m_AdditionalShaderChannelsFlag: 25
   m_UpdateRectTransformForStandalone: 0
-  m_SortingLayerID: 0
-  m_SortingOrder: 0
+  m_SortingLayerID: 1304827213
+  m_SortingOrder: 2
   m_TargetDisplay: 0
 --- !u!225 &211228729091238434
 CanvasGroup:
@@ -818,7 +818,6 @@ MonoBehaviour:
   nickname: "\uBB49\uAFB8"
   gpColor: {r: 1, g: 1, b: 1, a: 1}
   costumeIndex: 0
-  currentZone: 0
   isReturn: 0
   isAlive: 1
   isWin: 0
@@ -1168,6 +1167,7 @@ MonoBehaviour:
   disguisedAs: 13
   predictedAs: 13
   predictedCorrectly: 0
+  currentZone: 0
 --- !u!114 &872554505374034046
 MonoBehaviour:
   m_ObjectHideFlags: 0

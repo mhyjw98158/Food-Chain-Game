@@ -38,7 +38,7 @@ Mirror 기반 멀티플레이 소셜 서바이벌 게임 (Goose Goose Duck / Amo
 | `review/` | 코드 리뷰 관련 | `review-rules.md`(규칙), `review-plan.md`(남은 리팩토링), `review-progress.md`·`-2.md`(리뷰·변경 기록), `review-tests.md`·`-2.md`(플레이 테스트 목록) |
 | `prompt/` | 사용자가 준 작업 프롬프트 원문 | 예: `minimap.md` |
 | `log/` | 변경 이력(changelog) | `changelog.md` |
-| `progress/` | 그 외 전부 | `progress.md`(유일한 진행상황 문서), `plan.md`(테스트 제외 남은 작업 계획), `handoff.md`, `important.md`(출시 전 과제), `node-server-checklist.md` |
+| `progress/` | 그 외 전부 | `progress.md`(유일한 진행상황 문서), `plan.md`(테스트 제외 남은 작업 계획), `handoff.md`, `important.md`(출시 전 과제), `node-server-checklist.md`, `game-completion.md`(게임 완성에 필요한 기능 후보) |
 
 - 코드를 수정하면: 변경 내역은 `review/review-progress-2.md`에 추가, 확인 항목은 `review/review-tests-2.md`에 추가(규칙은 `review-rules.md` 6번), `progress/progress.md`의 상태를 갱신하고, 끝낸 일은 `plan.md`에서 지운다(새로 생긴 할 일은 `plan.md`의 맞는 단계에 추가). 수정 직후 테스트를 요청하며 멈추지 않는다
 - 진행상황은 `progress.md` 한 곳에만 쓴다. 다른 문서에 진행 현황 표나 상태 요약을 따로 만들지 않는다

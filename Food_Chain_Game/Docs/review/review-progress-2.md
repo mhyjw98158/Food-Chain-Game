@@ -986,3 +986,138 @@ Unity MCP 연결 상태에서 진행(컴파일·씬 확인·플레이 모드 확
 
 1. **[Assets/UniversalRenderPipelineGlobalSettings.asset] Render Graph 호환 모드 끔** — 원인: Unity 2022.3 → 6000.3 업그레이드(`3f9dc04`) 때 URP 전역 설정의 `RenderGraphSettings.m_EnableRenderCompatibilityMode`가 1로 옮겨졌다. Unity 6.3에서는 이 설정이 Project Settings에서 숨겨져 있고, 켜져 있으면 `URPPreprocessBuild`가 빌드를 막는다. 프로젝트에 직접 만든 `ScriptableRenderPass`/`ScriptableRendererFeature`가 없어 Render Graph로 바꿔도 깨질 코드가 없으므로, `URP_COMPATIBILITY_MODE` 정의를 추가하는 대신 호환 모드를 끄고 Render Graph를 쓰도록 함. MCP `execute_code`로 `GraphicsSettings.GetRenderPipelineSettings<RenderGraphSettings>()`의 값을 false로 바꾸고 저장(파일에서 1 → 0만 바뀜)
 - 확인: MCP로 Windows 64비트 빌드(빌드 설정의 활성 씬) → `Build Finished, Result: Success`. 빌드한 게임을 실행해 2D 조명·시야 마스크가 에디터와 같은지는 확인하지 않음. 테스트: review-tests-2.md RGRAPH
+
+## [2026-10-30] 테스트 후 개선사항 1: 게임 도중 나간 플레이어 탐색
+
+사용자 요청: 게임 시작 후 나가거나 튕긴 플레이어는 사망으로 판정하고, 그 플레이어를 탐색하던 중이면 끊기지 않고 결과를 주며, 탐색 목록에도 남아 이후에도 탐색할 수 있게.
+
+1. **[GameMamager.cs, GamePlayer.cs, GamePlayUI.cs] 나간 플레이어 탐색 유지** — 나간 플레이어의 사망 처리(`ServerHandlePlayerLeft`, 사망 원인 `Left`, 시체 생성)는 이미 되어 있었다. 문제는 그 직후 `base.OnServerDisconnect`에서 오브젝트가 파괴되어 ① 서버 탐색 코루틴이 끝날 때 `NetworkServer.spawned`에서 대상을 못 찾아 "탐색 실패"가 되고 ② `players` SyncList에서도 빠져 탐색 목록에서 사라진 것. 수정: 나갈 때 서버가 그 순간의 탐색 결과(위장 반영한 동물·포식자 여부)와 닉네임을 서버 전용 딕셔너리 `_leftPlayerIdentities`에 남기고, 공개 정보(netId·닉네임)만 `leftPlayers` SyncList(`LeftPlayerInfo`)로 동기화(역할은 보내지 않음). `GamePlayer.ServerTryGetInvestigationTarget`은 살아 있는 오브젝트가 없으면 `GameMamager.ServerTryGetLeftPlayer`로 찾는다. 위장 반영 계산은 `GamePlayer.ServerGetShownIdentity`로 뽑아 두 곳에서 같이 쓴다. 탐색 목록(`GamePlayUI.InitBtnGroup`)은 `players` 뒤에 `leftPlayers`를 붙이고, 대상 선택은 GamePlayer 대신 netId·닉네임으로 받게 바꿈. 새 게임(`InitPlayers`) 때 둘 다 비움
+- 플레이어 목록 슬롯(왼쪽 프로필)의 동물 표시는 대상 오브젝트가 있어야 해서 나간 플레이어는 건너뜀(기존과 같음)
+- 확인: 재컴파일, 콘솔에 C# 에러·경고(Weaver 포함) 없음, `leftPlayers`·`ServerTryGetLeftPlayer`가 컴파일된 어셈블리에 있음. 실제 멀티로 나가기·탐색은 확인하지 않음. 테스트: review-tests-2.md LEFTINV
+
+## [2026-10-30] 테스트 후 개선사항 2: 미션 오브젝트 클릭 시작 제거
+
+- 사용자 결정: 다른 플레이어 음소거 문제(원래 2번)는 하지 않고 plan에서 삭제.
+
+1. **[MissionObject.cs] 클릭으로 미션 시작 제거** — 범위 안에서 미션 오브젝트를 마우스로 누르면 미션이 열리던 `OnMouseDown`/`TryInteract`를 지움. 미션은 상호작용 키로만 시작한다(`PlayerMove.Interaction` → `Scanner.CurrentMission` → `GamePlayer.TryStartMission`, 같은 조건 `CanInteract`·`CanDoMissions`·`CanStartMissionType` 검사). 범위 하이라이트(초록)는 그대로
+2. **[InvestigationObject.cs, DisguiseObject.cs, PredictObject.cs] 모든 오브젝트 클릭 시작 제거** — 사용자 요청: 모든 오브젝트 상호작용은 상호작용 키로만. 세 오브젝트의 `OnMouseDown`(+ 탐색의 `TryInteract`)을 지움. 키 경로(`PlayerMove.Interaction`)가 `CanInteract` 검사 뒤 `TryStartInvestigation`/`TryStartDisguise`/`TryStartPredict`를 부른다. 월드 오브젝트의 `OnMouseDown`은 이제 프로젝트에 없음. 플레이어 우클릭 메뉴(귓속말·메모)와 미션 미니게임 안의 클릭은 UI라 그대로
+- 확인: 재컴파일, 콘솔 에러·경고 없음. 테스트: review-tests-2.md MCLICK
+
+## [2026-10-30] 테스트 후 개선사항 3: 공격할 수 없을 때 Kill UI 숨김
+
+1. **[Scanner.cs] 공격 기회를 쓴 포식자는 플레이어를 대상으로 잡지 않음** — Kill UI는 Scanner가 가장 가까운 대상으로 플레이어를 고르면 `UpdateInteractUI → GamePlayer.SetKillUI(true)`로 뜬다. 지금까지는 "살아 있는 포식자"만 봐서 공격 기회(`hasAttacked`)를 쓴 뒤에도 떴다. `CanAttackNow()`를 추가해 서버 `CmdAttack`과 같은 조건(생존, 포식자, `hasAttacked` 아님, `isRoundActive`)일 때만 플레이어를 대상으로 잡게 함. `hasAttacked`는 본인에게 동기화되는 값(`PlayerPrivateState`, Owner)이라 클라이언트에서 볼 수 있다. 공격한 직후 다음 스캔(0.1초)에서 대상이 빠지며 기존 로직이 Kill UI를 끈다. 플레이어가 대상에서 빠지므로 그 자리에서 상호작용 키는 근처 미션·시체·탐색 오브젝트로 넘어간다. 라운드 시작 전(시작 연출 중)에도 Kill UI가 뜨지 않음
+- 확인: 재컴파일, 콘솔 에러·경고 없음. 테스트: review-tests-2.md KILLUI
+
+## [2026-10-30] 테스트 후 개선사항 4: 머리 위 텍스트가 가려지지 않게
+
+1. **[TagManager.asset, GamePlayer.prefab, RoomPlayer.prefab, Kill Text UI.prefab] 월드 텍스트 전용 정렬 레이어 `WorldUI`** — 원인: 머리 위 텍스트 캔버스(World Space)가 모두 정렬 레이어 `Default` 0번이라, 같은 레이어의 벽(`Default` 1번)과 그 위 레이어 `Entities`(캐릭터, Y값 정렬로 1~10000번, 미션·탐색 등 오브젝트)에 가려졌다. 수정: 정렬 레이어 맨 끝(`FOV` 다음)에 `WorldUI`를 추가하고, 닉네임(0), Kill UI(1), 말풍선(2) 캔버스를 이 레이어로 옮김(게임·로비 플레이어 프리팹 둘 다). 모두 MCP `execute_code`로 수정(TagManager는 SerializedObject, 프리팹은 LoadPrefabContents/SaveAsPrefabAsset). 저장 때 Unity가 `Kill Text UI.prefab`의 TMP 필드 형식, `TagManager.asset`의 버전을 새 형식으로 다시 써서 그 줄도 함께 바뀜(동작 영향 없음)
+- 시야 노출 확인: 텍스트는 시야 마스크(SpriteMask)의 영향을 받지 않아, 지금까지는 벽 뒤 이름이 벽 그림에 가려진 것이 우연히 가림 역할도 했다. 하지만 시야 밖 플레이어의 닉네임·말풍선은 이미 `VisionUIController`가 0.05초마다 `VisionAnchor`/`PlayerUIVisibility`로 캔버스를 끄고 있어(내 시야 + 공유 시야 기준, 벽 가림 포함) 벽 너머 이름이 새로 드러나지 않는다. 프리팹 연결(head, nickname/bubble 캔버스) 확인함
+- 확인: 프리팹 세 개의 캔버스 값과 정렬 레이어 목록(Default, World, Entities, FOV, WorldUI)을 다시 읽어 확인. 콘솔의 `type is not a supported int value` 한 줄은 레이어 추가 스크립트가 bool인 `locked`에 int를 넣으려 해서 난 것(저장값은 `locked: 0`으로 정상, 프로젝트 코드와 무관). 실제 화면으로는 확인하지 않음. 테스트: review-tests-2.md WORLDUI
+
+## [2026-10-30] 테스트 후 개선사항 5: 위장 목록에서 카멜레온 제외
+
+1. **[GamePlayUI.cs, GamePlayer.cs] 카멜레온으로 위장 불가** — 위장 목록(`SetDisguiseOptions`)이 `AnimalType`의 모든 동물을 넣어 카멜레온도 있었다. 목록에서 `Chameleon`을 빼고, 서버 `CmdSetDisguise`에서도 카멜레온 선택을 거부(클라이언트 목록만 믿지 않도록)
+- 확인: 재컴파일, 콘솔 에러·경고 없음. 테스트: review-tests-2.md DISG
+
+## [2026-10-30] 테스트 후 개선사항 6: 게임 종료 때 결과 화면만 보이게
+
+1. **[GamePlayer.cs, GamePlayUI.cs] 게임 종료 때 미션 취소·창 정리** — 원인: 결과(`TargetShowGameResult → GamePlayUI.ShowResult`)는 결과 창과 채팅만 다뤄서, 미션 미니게임(`Mission Canvas`, order 100 — 결과 창보다 위)이나 다른 창이 열려 있으면 결과 위에 그대로 남았다. 수정: `TargetShowGameResult`에서 먼저 진행 중 미션 실패 처리(`FailProgressMission` → 미니게임 즉시 파괴, 서버엔 `CmdCancelMission` — 잠금만 풀고 벌칙 없음)와 응답 대기 중 미션 요청 취소(`CancelPendingMissionRequest`). `ShowResult`에서는 사망 때 쓰던 창 정리(탐색·부검 취소, 위장·예측·조사 결과·미션 목록·프로필 창, ESC 스택의 나머지 창)를 `CloseAllWindows()`로 뽑아 같이 쓰고, 재생 중인 사망 연출도 끝낸다(`StopDeathEffect` — 연출이 실제로 켜져 있을 때만 Modal Pop)
+- 확인: 재컴파일, 콘솔 에러·경고 없음. 테스트: review-tests-2.md GEND
+
+## [2026-10-30] 테스트 후 개선사항 7: 사망자 음성 규칙 점검 (코드 수정 없음)
+
+사용자 요청: "사망자끼리는 거리 상관없이 들리고, 생존자 소리는 가까이 가야 들리게"가 이미 구현돼 있는지 확인.
+
+- 코드를 따라가 본 결과 요청대로 되어 있음. 수정하지 않음
+  - 사망 시 `GamePlayer.OnAliveChanged` → `VoiceManager.EnterGameplay(isAlive: false)` → 유령은 `dead_방코드`(말하는 채널)와 `alive_방코드`(듣기만) 두 채널에 들어가고, `SetChannelTransmissionModeAsync(Single, dead_)`로 유령 채널에만 말한다. 채널을 옮기는 동안은 `_transmitBlocked`로 마이크를 막아 생존자 채널로 새지 않는다
+  - 유령끼리: `dead_` 채널은 근접 조절 대상이 아니라(`IsProximityChannel`은 `alive_`만) 개별 음량 그대로 → 거리 상관없이 들림
+  - 유령이 생존자를 들을 때: `InGameVoiceProximity`가 `alive_` 채널 참가자 음량을 조절. 유령이면 `ghostHearDistance`(프리팹 3.5) 안의 생존자만 들리고, 가장자리 0.8에서 서서히 작아짐. 벽은 무시(유령은 벽 통과)
+  - 생존자는 `dead_` 채널에 없어서 유령 목소리를 듣지 못하고, `alive_` 채널에 남아 있는 유령 참가자는 `speaker.isAlive`가 false라 바로 무음. 사망 순간에는 `SilenceInAliveChannelNow`로 즉시 끔
+  - 생존자끼리: 시야 반경 최소·최대(6/11)의 가운데 8.5 안, 벽(`Occluder` 레이어)에 가리지 않을 때만 들림
+  - 결과 화면부터는 `EnterResult` → 로비 채널로 전원 대화
+- 프리팹 값 확인(MCP): `obstacleMask` = Occluder, `ghostHearDistance` 3.5, 시야 6/11, `localPlayer` 연결됨
+- 테스트: 기존 review-tests-2.md 항목(유령끼리 거리 상관없이 들림, 유령이 생존자 가까이 가면 들림)으로 확인. 새 항목 없음
+
+## [2026-10-30] 테스트 후 개선사항 8: 게임 시작 때 늦는 플레이어 대기·로딩 화면
+
+사용자 보고: 연결이 늦는 플레이어가 있으면 검은 오버레이가 시작 연출 시간만 보였다 사라져 게임 화면이 보이고, 서버가 그 플레이어를 추방하면 시작 연출과 함께 게임이 다시 시작됨. 기다리는 시간이 10초도 안 됨 → 30초로 늘리고, 대기 중에는 로딩 화면.
+
+원인 두 가지:
+- **검은 패널이 저절로 사라짐**: 시작 패널(`ICanvas/Start UI/Panel`, `GamePlayUI.characterPanel`)의 애니메이터(`Start Panel.controller`) 기본 상태가 5초짜리 페이드 클립(4.5초까지 검정, 5초에 투명)이라, 씬이 열리자마자 재생되어 서버 신호와 상관없이 5초 뒤 사라졌다. 서버가 시작 연출(`RpcPlayStartIntro` → `ShowPanel` 트리거)을 보내면 같은 클립이 처음부터 다시 재생되어 "연출이 다시 나오는" 것처럼 보였다
+- **10초 만에 끊김**: 서버의 준비 대기(`GameMamager.readyTimeoutSeconds`)는 이미 30초였지만, Mirror 전송 계층 `KcpTransport.Timeout`이 10000ms라 씬을 불러오느라 멈춘 클라이언트가 10초 만에 끊겼다(`NetworkManager.disconnectInactiveTimeout`도 15초). 끊기면 접속 수가 줄어 남은 인원이 모두 준비된 것으로 판정되어 바로 시작 연출이 나왔다
+
+수정:
+1. **[Start Panel.controller] 기본 상태를 정지 상태 `Loading`(모션 없음)으로** — 서버가 `ShowPanel`을 보낼 때까지 검은 패널이 그대로 유지된다. 기존 페이드 상태·Any State 전환은 그대로
+2. **[GamePlay.unity, GamePlayUI.cs] 로딩 안내** — 패널 아래에 `Loading Text`("다른 플레이어를 기다리는 중...", 소개 글자와 같은 폰트, 클릭 받지 않음)를 추가하고 `GamePlayUI.loadingIndicator`에 연결. 시작 연출(`ShowCharacter`)이 시작되면 끈다. 캐릭터 정보가 없거나 역할이 None이라 연출을 건너뛰는 경우에는 `SkipIntro()`로 로딩 글자와 패널을 함께 꺼서 검은 화면이 남지 않게 함(전에는 패널이 저절로 사라져서 생기지 않던 경우). 대기 중 이동·상호작용은 기존대로 `isRoundActive`가 false라 막혀 있다
+3. **[Start.unity] 타임아웃 30초** — `KcpTransport.Timeout` 10000 → 30000ms, `RoomManager.disconnectInactiveTimeout` 15 → 30초. 서버 대기 30초와 맞춰, 30초 안에 준비되면 같이 시작하고 아니면 그 인원 없이 시작
+- 영향: 게임 중 진짜로 끊긴(크래시·네트워크 단절) 플레이어를 알아채는 시간도 10초 → 30초로 늘어난다(그동안 그 캐릭터는 서 있는 상태)
+- 기존 문제(이번에 고치지 않음): 서버가 30초 대기 후 시작한 뒤(`InitPlayers`)에 늦게 들어온 플레이어는 플레이어 목록·미션 배정에서 빠진다. 타임아웃이 대기 시간과 같아 보통은 그 전에 끊긴다
+- `GamePlay.unity`는 저장 때 그림자 메시가 다시 만들어져 무관한 변경이 약 1만 줄 생김(handoff.md 주의사항의 그 문제). 실제 변경은 `Loading Text` 오브젝트와 `loadingIndicator` 연결뿐. `Start.unity`에는 저장 때 VoiceManager의 기존 필드 두 줄(`deathSilenceSeconds`, `speakingRefreshInterval`, 코드 기본값과 같음)이 함께 기록됨
+- 확인: 재컴파일, 콘솔 에러·경고 없음, 저장된 값(애니메이터 기본 상태, 연결된 로딩 글자, 타임아웃 값) 다시 읽어 확인. 실제로 늦게 들어오는 클라이언트로는 확인하지 않음. 테스트: review-tests-2.md SLOWJOIN
+
+## [2026-10-30] 결과 화면: 모두의 직업 공개 + 승리자·패배자 배치
+
+사용자 요청: 결과 창에서 모두의 직업 공개, 왼쪽(밝게)에 승리자·오른쪽(어둡게)에 패배자, 경계만 그라데이션, 승리자에게 스포트라이트. 한쪽 6명 이하는 한 줄, 7명 이상은 두 줄(홀수면 윗줄이 많게: 7명 4·3, 8명 4·4). 캐릭터 위에 직업과 닉네임.
+
+- **[GameResultEntry.cs 새 파일]** 결과 화면용 플레이어 정보 구조체(netId, 닉네임, 실제 동물, 포식자 여부, 승패, 색, 의상 번호). 게임이 끝난 뒤에만 보내므로 역할을 담는다
+- **[GameMamager.cs]** `EvaluateGameResult`가 전원의 결과를 먼저 계산해 목록을 만든 뒤 각자에게 `TargetShowGameResult(isWinner, 목록)`으로 보낸다. 게임 도중 나간 플레이어는 나갈 때(`ServerHandlePlayerLeft`) `_leftResultEntries`에 실제 역할로 남겨 두고 패배자로 함께 보여 준다(`InitPlayers`에서 비움). `resultDisplaySeconds` 기본값·`GamePlay` 씬 값 3 → 12초(결과판을 볼 시간)
+- **[GamePlayer.cs]** `ServerMakeResultEntry(isWinner)` 추가, `TargetShowGameResult`가 목록을 받아 `GamePlayUI.ShowResult(isWin, entries)`로 넘긴다
+- **[ResultBoardUI.cs 새 파일]** 승리자·패배자를 나눠 각 쪽 윗줄·아랫줄에 칸을 만든다. `singleRowMax`(6)를 넘으면 두 줄, 윗줄 = (n+1)/2
+- **[ResultSlotUI.cs 새 파일]** 한 칸: 몸 그림(의상 몸 그림 또는 기본 캡슐, 플레이어 색) + 덮는 그림, 위에 직업(포식자는 빨간색)·닉네임(내 닉네임은 주황색). 승리자는 스포트라이트·바닥 조명, 패배자는 회색 원 배경에 몸을 조금 어둡게(`loserBrightness` 0.7). 색·밝기는 인스펙터에서 조절
+- **[GamePlayUI.cs]** `resultBoard` 필드, `ShowResult`에서 결과판을 채우고 결과 창을 맨 앞(`SetAsLastSibling`)으로
+- **[Result Player Slot.prefab 새 프리팹, Assets/Sprite/UI/Result/ 그림 4개]** 경계 그라데이션, 스포트라이트, 바닥 조명, 원형 배경(코드로 만든 흰색 그림, 색은 Image 색으로)
+- **[GamePlay.unity]** `ICanvas/Result UI` 맨 아래에 `Result Board`(어두운 전체 배경, 왼쪽 절반 밝은 배경, 가운데 180px 그라데이션, "승 리"/"패 배" 제목, 양쪽 Area 안 Top/Bottom Row) 추가 후 연결. 기존 개인 승패 문구("승 리"/"패 배"와 어두운 패널)는 그대로 위에서 2초 보인 뒤 1초 동안 사라지고 결과판이 드러난다
+- 확인: 재컴파일, 콘솔 에러·경고 없음. 에디터에서 가짜 데이터(승 7/패 5, 승 2/패 9)로 결과판을 그려 이미지로 확인(7명 4·3, 9명 5·4, 긴 닉네임 말줄임). 실제 멀티플레이로는 확인하지 않음. 테스트: review-tests-2.md RESULT
+
+## [2026-10-30] 결과 화면: 기존 개인 승패 문구 삭제, 표시 3초
+
+사용자 요청: 기존 패배(승패) 화면은 삭제하고 결과창은 3초만.
+- **[GamePlay.unity]** `ICanvas/Result UI`에서 `Panel`(어두운 패널), `Result Text`("승 리"/"패 배"), Animator 삭제. 이제 `Result Board`만 남음. `GameMamager.resultDisplaySeconds` 12 → 3초(코드 기본값도 3)
+- **[Assets/Animation]** 더 쓰지 않는 `Result UI.controller`, `Result UI.anim` 삭제(다른 씬·프리팹 참조 없음 확인)
+- **[GamePlayUI.cs]** `resultText`, `resultAni` 제거, `ShowResult(entries)`로 단순화. **[GamePlayer.cs]** `TargetShowGameResult(entries)` — 내 승패도 목록의 `isWinner`로 전달되므로 따로 보내지 않음
+- 확인: 재컴파일, 콘솔 에러·경고 없음. 테스트: review-tests-2.md RESULT 갱신
+
+## [2026-10-30] 시작 연출: 능력 설명·직업 일러스트 추가, 화면이 서서히 밝아짐
+
+사용자 요청: 검은 화면에 직업·승리 조건만 나오던 시작 창에 능력 설명과 직업 일러스트 추가(위에서부터 직업 → 능력 → 일러스트 → 승리 조건). 애니메이션은 기존처럼 보여 준 뒤 직업 글자는 좌측 상단으로 이동, 화면이 점점 밝아지며 게임 화면이 나오게. 연출 시간(5초)은 그대로.
+
+- **[CharacterData.cs]** `CharacterInfoData.AbilityDescription` 추가(생성자 인자 하나 늘어남), 13종 능력 설명 작성(코드 동작 기준: 포식자 서열·라운드당 1회 공격, 전갈 독 반격, 올빼미 예측, 카멜레온 위장, 얼룩말·타조 짝 시야·피격 알림, 미어캣 밤 시야, 하마 복수 미션, 까마귀·악어새는 "특별한 능력이 없습니다"). **문구는 임시 — 사용자 확인 필요**
+- **[GamePlayUI.cs]** `abilityText`, `roleIllustrationRoot`/`roleIllustrationImage`, 동물별 일러스트 배열 `roleIllustrations`(AnimalType → Sprite), 대체 그림(`fallbackBodyImage`/`fallbackOverlayImage`/`defaultBodySprite`) 필드. `ShowCharacter`가 능력 설명을 넣고 `SetRoleIllustration`으로 일러스트를 고른다. 일러스트가 없는 동물은 내 캐릭터 모습(플레이어 색 + 의상)을 회색 원 위에 보여 준다. 연출 끝(5초)에 일러스트 묶음을 끈다
+- **[GamePlay.unity]** `ICanvas/Start UI`: 직업 글자 y 100 → 380, 승리 조건 y -150 → -260(글자 70 → 60), 거주지 y -350 → -410(80 → 45). `Ability Text`(승리 조건 글자 복사본, y 230, 크기 50, 같은 애니메이터 `Description` 트리거로 3~5초 사라짐), `Role Illustration`(CanvasGroup + Animator, 300×300 회색 원 `Backdrop` + `Illustration` + `Fallback Body`/`Fallback Overlay`, 클릭 받지 않음) 추가 후 연결
+- **[Animation]** `Start Panel.anim` 검은 패널 투명도 키 4.5초 → 3초(3~5초 동안 서서히 밝아짐. 전에는 4.5~5초에 0.5초 만에 사라짐). `Start Text.anim` 0~3초 y 100 → 380(3~5초 좌측 상단 이동은 그대로). 새 `Start Illustration.anim/.controller`(CanvasGroup 투명도 0~3초 1, 5초 0, 기본 상태 Idle, 트리거 `Illustration`)
+- 일러스트 그림은 아직 없음 → `GamePlayUI`의 `Role Illustrations`에 동물별로 넣으면 바로 쓰인다(plan 3단계에 추가)
+- 확인: 재컴파일, 콘솔 에러·경고 없음. 에디터에서 늑대로 배치를 그려 이미지로 확인(애니메이션 재생은 확인 못 함). 테스트: review-tests-2.md INTRO
+
+## [2026-10-30] 시작 연출: 직업 글자 이동이 끝난 뒤 밝아짐(5초 → 7초)
+
+사용자 요청: 직업 글자가 이동하면서 밝아지는 것을, 이동이 끝난 뒤 밝아지게. 연출 시간이 늘어도 됨.
+- **[Start Panel.anim]** 검은 패널 투명도 0~5초 1, 5~7초에 0(전: 3~5초). 직업 글자 이동(3~5초)·다른 글자·일러스트가 사라지는 시간(3~5초)은 그대로
+- **[GamePlayUI.cs / GamePlay.unity]** `characterIntroSeconds` 5 → 7(조작 잠금 시간)
+- **[GameMamager.cs / GamePlay.unity]** `preRoundSeconds` 2.5 → 4.5 — `startAnimationSeconds`(2.5)와 합쳐 첫 낮 시작이 연출 끝(7초)과 맞도록
+- 확인: 재컴파일, 콘솔 에러·경고 없음, 클립 길이 7초·반복 없음 확인. 테스트: review-tests-2.md INTRO 갱신
+
+## [2026-10-30] 로비 커스터마이징 오브젝트 + 커스터마이징 창 닫기 버튼, SET 버튼 삭제
+
+사용자 요청: 로비에 오브젝트를 만들고 상호작용하면 커스터마이징 창이 열리게. 가까이 가면 다른 오브젝트처럼 초록색으로 빛나게. 커스터마이징 창에 닫기 버튼 추가, 기존 SET 버튼 삭제.
+- **[CustomizeObject.cs 새 파일]** 로비 오브젝트. 매 프레임 로컬 플레이어(`NetworkClient.localPlayer`)가 `interactRange`(1.5, 콜라이더 가장자리 기준) 안에 있으면 SpriteRenderer를 `highlightColor`(초록)로, 벗어나면 원래 색으로(탐색 오브젝트와 같은 방식). `TryInteract(위치)`가 범위 안이면 `GameRoomUI.OpenColorUI()`
+- **[PlayerMove.cs]** 상호작용 키: `GamePlayer`가 없으면(로비의 RoomPlayer) `CustomizeObject.TryInteract`만 확인. 전에는 로비에서 상호작용 키를 누르면 `localPlayer`(GamePlayer)가 null이라 `localPlayer.scanner`에서 NullReferenceException이 났을 것(함께 해결). 창이 열려 있으면(`UIManager.CanInteract` false) 다시 열리지 않음
+- **[GameRoomUI.cs]** `OnClickColorUI`(열기/닫기 토글, SET 버튼 전용) → `OpenColorUI`(열기만). `CloseColorUI`에 null 확인 추가. ESC 닫기는 그대로
+- **[GameRoom.unity]** `UI Canvas/Character ColorSet Btn`(SET) 삭제. `Customize UI/Panel/Close Btn` 추가(직업 선택 창의 x 버튼 복사, 오른쪽 위, `GameRoomUI.CloseColorUI` 연결). `Room Map/Customize Object` 추가: 방 가운데(0, 0, 스폰 지점들이 둘러싼 빈 자리), 갈색 사각형 임시 그림(1.2×1.6), 막힌 BoxCollider2D, 정렬 Default/1
+- 확인: 재컴파일, 콘솔 에러·경고 없음, 저장된 씬에 SET 버튼·`OnClickColorUI` 연결 없음, 닫기 버튼 연결 확인. 플레이로는 확인 못 함. 테스트: review-tests-2.md LOBBYCUST
+
+## [2026-10-30] 채팅창 설정 저장, 게임 채팅 채널 목록 + 버튼·귓속말 알림
+
+사용자 요청: 채팅창 크기·위치·잠금 설정을 저장해 로비↔게임 씬 전환과 게임 재시작 뒤에도 유지. 게임 씬 채팅창 잠금 버튼 옆에 + 버튼을 두어 채널 목록을 숨기기/보이기(기본은 숨김). 목록이 숨겨진 동안 귓속말이 오면 알림음 + 버튼 노란색.
+- **[ChatWindowSettings.cs 새 파일]** 채팅창(`Chat UI`)에 붙인다. 시작할 때 PlayerPrefs(`ChatWindow.PosX/PosY/Width/Height/Locked`)에서 위치·크기·잠금을 불러와 적용(크기는 `UIResizable` 최소·최대로, 위치는 화면 안으로 자름). 매 프레임 값이 바뀌었으면 PlayerPrefs에 기록, 창이 사라질 때(씬 전환)·종료할 때 `PlayerPrefs.Save()`. 로비와 게임 씬의 채팅창이 같은 키를 쓴다(두 씬 캔버스 기준 해상도 1920×1080, match 0.5로 같음)
+- **[UIDraggable.cs / UIResizable.cs]** `SetLock(bool)` 추가(저장된 잠금 상태 적용용). `LockDrag`/`LockResize`는 `SetLock(!isLock)`로. 잠금 글자(L/UL) 갱신에 null 확인
+- **[ChatChannelToggle.cs 새 파일]** + 버튼. `Toggle()`로 채널 목록(`Chat Tap`)을 켜고 끈다. 시작할 때 숨김. `NotifyWhisperReceived()`: 목록이 숨겨져 있으면 버튼을 `alertColor`(노랑)로 바꾸고 알림음 재생(UI 효과음 음량·음소거를 따름). 목록을 열면 원래 색으로. 알림음 파일이 없어 `alertClip`이 비면 짧은 두 번 울리는 소리를 코드로 만든다(임시)
+- **[ChatManager.cs]** `channelToggle` 필드. `AddWhisperMessage`에서 내가 보낸 귓속말이 아니면 `channelToggle.NotifyWhisperReceived()`
+- **[GameRoom.unity / GamePlay.unity]** 두 씬 `Chat UI`에 `ChatWindowSettings` 추가(드래그·크기 조절 손잡이 2개 연결). GamePlay: 잠금 버튼을 복사한 `Channel Button`("+", 잠금 버튼 왼쪽 (-55, 40)) 추가, `ChatChannelToggle` 연결, `ChatManager.channelToggle` 연결, `Chat Tap`을 꺼진 상태로 저장
+- 확인: 재컴파일(중복 Tooltip 에러 한 번 고침), 콘솔 에러·경고 없음, 두 씬 저장. 플레이로는 확인 못 함. 테스트: review-tests-2.md CHATSET
+
+## [2026-10-30] 게임 씬 채팅창 위치 이동 가능하게
+
+사용자 보고: 게임 씬 채팅창은 위치를 옮길 수 없음.
+- 원인: `GamePlay.unity`의 `Canvas/Chat UI` 배경 Image의 Raycast Target이 꺼져 있어 `UIDraggable`이 드래그 입력을 받지 못했다(로비 `UI Canvas/Chat UI`는 켜져 있음). 그 위 캔버스(ICanvas 10, Mission Canvas 100)에 채팅창을 덮는 큰 클릭 영역은 없음
+- 수정: **[GamePlay.unity]** `Chat UI` Image Raycast Target 켬. 코드 변경 없음
+- 확인: 저장 후 콘솔 에러·경고 없음. 테스트: review-tests-2.md CHATSET에 항목 추가

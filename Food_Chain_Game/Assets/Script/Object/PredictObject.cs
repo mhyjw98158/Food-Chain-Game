@@ -43,12 +43,5 @@ public class PredictObject : MonoBehaviour
         _instances.Remove(this);
     }
 
-    private void OnMouseDown()
-    {
-        var localPlayer = GamePlayer.LocalPlayer;
-        if (localPlayer == null || !IsInRange(localPlayer.transform.position)) return;
-        if (UIManager.Instance != null && !UIManager.Instance.CanInteract()) return;
-
-        localPlayer.TryStartPredict();
-    }
+    // 상호작용 키로만 시작한다(PlayerMove.Interaction → Scanner). 오브젝트 클릭으로는 시작하지 않는다
 }

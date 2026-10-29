@@ -10,6 +10,13 @@ using UnityEngine.UI;
 
 // 값은 예전 순서(1·2번은 없앤 위장/탐색 단계) 그대로 둔다. 씬에 저장된 값과 어긋나지 않게 하기 위함
 public enum RoundTime { None = 0, Day = 3, Night = 4, End = 5 }
+
+// 게임 도중 나간 플레이어의 공개 정보(역할은 넣지 않는다)
+public struct LeftPlayerInfo
+{
+    public uint netId;
+    public string nickname;
+}
 public class GameMamager : NetworkBehaviour
 {
     public static GameMamager Instance;
@@ -49,6 +56,12 @@ public class GameMamager : NetworkBehaviour
     public static event System.Action<float> TimerChanged;
 
     public readonly SyncList<GamePlayer> players = new SyncList<GamePlayer>();
+    // 게임 도중 나간 플레이어(오브젝트는 파괴됨). 탐색 목록에 남기기 위해 netId와 닉네임만 보낸다
+    public readonly SyncList<LeftPlayerInfo> leftPlayers = new SyncList<LeftPlayerInfo>();
+    // 서버 전용: 나간 플레이어를 탐색했을 때 보여 줄 정보(나간 순간 기준, 위장 반영). 역할 은닉을 위해 동기화하지 않는다
+    private readonly Dictionary<uint, (string nickname, AnimalType shownType, bool shownIsPredator)> _leftPlayerIdentities = new();
+    // 서버 전용: 나간 플레이어의 결과 화면 정보(실제 역할). 게임이 끝날 때 패배자로 함께 보낸다
+    private readonly List<GameResultEntry> _leftResultEntries = new();
     private Coroutine roundFlowCo;
 
     [Header("Game Flow Timing")]
@@ -56,8 +69,8 @@ public class GameMamager : NetworkBehaviour
     [SerializeField] private float readyTimeoutSeconds = 30f;
     [Tooltip("모두 준비된 뒤 재생되는 시작 애니메이션 시간(초)")]
     [SerializeField] private float startAnimationSeconds = 2.5f;
-    [Tooltip("미션/능력 설정 후 첫 낮이 시작되기까지의 시간(초). 시작 애니메이션과 합쳐 캐릭터 소개 연출(5초) 길이에 맞춘다")]
-    [SerializeField] private float preRoundSeconds = 2.5f;
+    [Tooltip("미션/능력 설정 후 첫 낮이 시작되기까지의 시간(초). 시작 애니메이션과 합쳐 캐릭터 소개 연출(7초) 길이에 맞춘다")]
+    [SerializeField] private float preRoundSeconds = 4.5f;
     [Tooltip("결과 화면을 보여준 뒤 로비로 돌아가기까지의 시간(초)")]
     [SerializeField] private float resultDisplaySeconds = 3f;
 
@@ -132,6 +145,9 @@ public class GameMamager : NetworkBehaviour
         deadPredatorCount = 0;
 
         players.Clear();
+        leftPlayers.Clear();
+        _leftPlayerIdentities.Clear();
+        _leftResultEntries.Clear();
         foreach (var gp in FindObjectsByType<GamePlayer>(FindObjectsSortMode.None))
         {
             players.Add(gp);           
@@ -461,6 +477,8 @@ public class GameMamager : NetworkBehaviour
         // 올빼미처럼 다른 플레이어의 승패를 따르는 조건이 있어 전원의 결과를 한 번에 계산한다
         var results = GameResultEvaluator.EvaluateAll(players);
 
+        // 결과 화면에서 모두의 직업을 공개하기 위한 목록(게임 도중 나간 플레이어는 패배로 함께 보여 준다)
+        var entries = new List<GameResultEntry>();
         foreach (var player in players)
         {
             if (player == null) continue;
@@ -468,12 +486,20 @@ public class GameMamager : NetworkBehaviour
             // 승리 조건이 정의되지 않은 캐릭터는 패배 처리(예외로 결과 표시/로비 복귀가 누락되지 않게)
             bool isWinner = results.TryGetValue(player, out bool won) && won;
             player.isWin = isWinner;
-
-            // 결과는 RPC 인자로 본인에게 직접 보낸다. 같은 프레임에 쓴 SyncVar(isWin)는 RPC보다 늦게 도착하므로
-            // 클라이언트가 RPC 시점에 isWin을 읽으면 항상 이전 값(false)을 보게 된다
-            player.TargetShowGameResult(isWinner);
+            entries.Add(player.ServerMakeResultEntry(isWinner));
 
             Debug.Log($"[Evaluate] {player.characterName} 결과: {(isWinner ? "승리" : "패배")}");
+        }
+        entries.AddRange(_leftResultEntries);
+        var entryArray = entries.ToArray();
+
+        foreach (var player in players)
+        {
+            if (player == null) continue;
+
+            // 승패는 RPC 인자(목록의 isWinner)로 보낸다. 같은 프레임에 쓴 SyncVar(isWin)는 RPC보다 늦게 도착하므로
+            // 클라이언트가 RPC 시점에 isWin을 읽으면 항상 이전 값(false)을 보게 된다
+            player.TargetShowGameResult(entryArray);
         }
         StartCoroutine(WaitAndReturnToRoom());
     }
@@ -527,6 +553,12 @@ public class GameMamager : NetworkBehaviour
         bool wasInGame = players.Remove(leaver);
         if (!wasInGame || _gameEnded) return;
 
+        // 오브젝트가 파괴된 뒤에도 탐색할 수 있도록 탐색 결과를 남긴다
+        leaver.ServerGetShownIdentity(out AnimalType shownType, out bool shownIsPredator);
+        _leftPlayerIdentities[leaver.netId] = (leaverNickname, shownType, shownIsPredator);
+        leftPlayers.Add(new LeftPlayerInfo { netId = leaver.netId, nickname = leaverNickname });
+        _leftResultEntries.Add(leaver.ServerMakeResultEntry(false));
+
         foreach (var p in players)
         {
             if (p != null)
@@ -534,6 +566,22 @@ public class GameMamager : NetworkBehaviour
         }
 
         ServerTryEndGame();
+    }
+
+    // 나간 플레이어의 탐색 정보(GamePlayer.ServerCoInvestigate에서 대상 오브젝트가 없을 때 사용)
+    [Server]
+    public bool ServerTryGetLeftPlayer(uint netId, out string nickname, out AnimalType shownType, out bool shownIsPredator)
+    {
+        nickname = null;
+        shownType = AnimalType.None;
+        shownIsPredator = false;
+
+        if (!_leftPlayerIdentities.TryGetValue(netId, out var identity)) return false;
+
+        nickname = identity.nickname;
+        shownType = identity.shownType;
+        shownIsPredator = identity.shownIsPredator;
+        return true;
     }
 
     // 종료 조건: 포식자가 있던 게임에서 살아있는 포식자가 없어짐(사망 또는 나감) / 생존자가 없음

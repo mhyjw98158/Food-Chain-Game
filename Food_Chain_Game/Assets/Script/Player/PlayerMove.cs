@@ -69,6 +69,13 @@ public class PlayerMove : NetworkBehaviour
 
         if (Input.GetKeyDown(KeySetting.keys[KeyAction.INTERACT]))
         {
+            // 로비(RoomPlayer)에는 GamePlayer·Scanner가 없다. 로비 오브젝트(커스터마이징)만 확인한다
+            if (localPlayer == null)
+            {
+                CustomizeObject.TryInteract(transform.position);
+                return;
+            }
+
             if (localPlayer.scanner == null) return;
 
             var type = localPlayer.scanner.CurrentType;            

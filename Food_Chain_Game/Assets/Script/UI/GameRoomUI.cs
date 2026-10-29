@@ -178,24 +178,20 @@ public class GameRoomUI : MonoBehaviour
         codeGroup.SetActive(isHost);
     }
 
-    public void OnClickColorUI()
-    {        
-        if (!colorUI.activeSelf)
-        {
-            colorUI.SetActive(true);
-            UIManager.Instance.Push(UIPriority.Modal);
-            UIManager.RegisterEscape(colorUI, CloseColorUI);
-        }
-        else
-        {
-            CloseColorUI();
-        }
+    // 커스터마이징(의상·색상) 창 열기. 로비의 커스터마이징 오브젝트(CustomizeObject)에서 상호작용 키로 연다
+    public void OpenColorUI()
+    {
+        if (colorUI == null || colorUI.activeSelf) return;
+
+        colorUI.SetActive(true);
+        UIManager.Instance.Push(UIPriority.Modal);
+        UIManager.RegisterEscape(colorUI, CloseColorUI);
     }
 
-    // 커스터마이징(의상·색상) 창 닫기. ESC로도 닫힌다
+    // 커스터마이징 창 닫기. 창의 닫기 버튼과 ESC로 닫힌다
     public void CloseColorUI()
     {
-        if (!colorUI.activeSelf) return;
+        if (colorUI == null || !colorUI.activeSelf) return;
 
         colorUI.SetActive(false);
         UIManager.Instance.Pop(UIPriority.Modal);

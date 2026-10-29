@@ -71,6 +71,7 @@ public class Scanner : MonoBehaviour
         float bestDist = Mathf.Infinity;
 
         Collider2D[] hits = Physics2D.OverlapCircleAll(center, scanRadius, scanLayers);
+        bool canAttack = CanAttackNow();
 
         foreach (var hit in hits)
         {
@@ -78,7 +79,7 @@ public class Scanner : MonoBehaviour
 
             if (hit.TryGetComponent(out GamePlayer gp))
             {
-                if (myPlayer.isAlive && myPlayer.isPredator && gp != myPlayer && gp.isAlive)
+                if (canAttack && gp != myPlayer && gp.isAlive)
                 {
                     playersInRange.Add(gp);
 
@@ -213,6 +214,14 @@ public class Scanner : MonoBehaviour
 
 
         UpdateInteractUI(currentInteractTarget);
+    }
+    // 공격할 수 있을 때만 플레이어를 대상으로 잡는다(Kill UI도 이때만 뜬다).
+    // 실제 판정은 서버(GamePlayer.CmdAttack)가 같은 조건으로 한다. hasAttacked는 본인에게 동기화되는 값
+    private bool CanAttackNow()
+    {
+        if (!myPlayer.isAlive || !myPlayer.isPredator || myPlayer.hasAttacked) return false;
+
+        return GameMamager.Instance != null && GameMamager.Instance.isRoundActive;
     }
     private bool CanInteractMission(MissionObject obj)
     {

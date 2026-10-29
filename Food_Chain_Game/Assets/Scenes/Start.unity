@@ -262,6 +262,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   pushToTalkReleaseDelay: 0.2
+  deathSilenceSeconds: 2
+  speakingRefreshInterval: 0.1
   reconnectCheckInterval: 5
   reconnectInitialDelay: 2
   reconnectMaxDelay: 30
@@ -703,9 +705,17 @@ PrefabInstance:
       value: 2
       objectReference: {fileID: 0}
     - target: {fileID: 4284901243524501265, guid: f9642280f916e0047a9309cfec368132, type: 3}
+      propertyPath: disconnectInactiveTimeout
+      value: 30
+      objectReference: {fileID: 0}
+    - target: {fileID: 4284901243524501265, guid: f9642280f916e0047a9309cfec368132, type: 3}
       propertyPath: 'spawnPrefabs.Array.data[1]'
       value: 
       objectReference: {fileID: 8309283827534913789, guid: 0e0bfb105f019314fa099f05975600f6, type: 3}
+    - target: {fileID: 7403400570815380683, guid: f9642280f916e0047a9309cfec368132, type: 3}
+      propertyPath: Timeout
+      value: 30000
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

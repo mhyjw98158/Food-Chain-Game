@@ -15,6 +15,8 @@ public class GamePlayUI : MonoBehaviour
     public Canvas canvas;
     public GameObject chatUI;
     public GameObject resultUI;
+    [Tooltip("결과 화면 본판(승리자·패배자와 모두의 직업)")]
+    [SerializeField] private ResultBoardUI resultBoard;
     public GameObject disguiseUI;
     public GameObject predictUI;
     public GameObject checkUI;
@@ -36,7 +38,6 @@ public class GamePlayUI : MonoBehaviour
     public TextMeshProUGUI descriptionText;
     public TextMeshProUGUI roundText;
     public TextMeshProUGUI timerDisplay;
-    public TextMeshProUGUI resultText;
     public TextMeshProUGUI checkText;
     public TextMeshProUGUI predictCheckText;
     public TextMeshProUGUI scanKillerType;
@@ -59,9 +60,33 @@ public class GamePlayUI : MonoBehaviour
     [SerializeField] private string leftDeathText = "퇴장";
 
     [Header("Timing")]
-    [Tooltip("캐릭터 소개 연출 동안 조작을 막는 시간(초)")]
-    [SerializeField] private float characterIntroSeconds = 5f;
+    [Tooltip("캐릭터 소개 연출 동안 조작을 막는 시간(초). 시작 패널 애니메이션 길이(7초: 3~5초 직업 글자 이동, 5~7초 화면이 밝아짐)와 맞춘다")]
+    [SerializeField] private float characterIntroSeconds = 7f;
     [SerializeField] private float characterIntroUnlockDelay = 0.1f;
+
+    [Header("Character Intro")]
+    [Tooltip("시작 연출의 능력 설명 글자(승리 조건 글자와 같은 애니메이션)")]
+    [SerializeField] private TextMeshProUGUI abilityText;
+    [Tooltip("시작 연출의 직업 일러스트 묶음(Animator 트리거 Illustration으로 나타났다 사라진다)")]
+    [SerializeField] private GameObject roleIllustrationRoot;
+    [SerializeField] private Image roleIllustrationImage;
+    [Tooltip("동물별 일러스트. 없는 동물은 내 캐릭터 모습(색 + 의상)을 대신 보여 준다")]
+    [SerializeField] private RoleIllustration[] roleIllustrations = new RoleIllustration[0];
+    [SerializeField] private Image fallbackBodyImage;
+    [SerializeField] private Image fallbackOverlayImage;
+    [Tooltip("의상에 몸 그림이 없을 때 쓰는 기본 몸 그림(GamePlayer 프리팹의 몸 그림과 같게)")]
+    [SerializeField] private Sprite defaultBodySprite;
+
+    [Serializable]
+    private struct RoleIllustration
+    {
+        public AnimalType type;
+        public Sprite sprite;
+    }
+
+    [Header("Loading")]
+    [Tooltip("시작 연출 전까지 검은 패널(characterPanel) 위에 띄우는 로딩 안내. 패널 애니메이터의 기본 상태는 정지(검은 화면)라, 서버가 모든 플레이어를 기다린 뒤 시작 연출을 보낼 때까지 그대로 유지된다")]
+    [SerializeField] private GameObject loadingIndicator;
 
     [Header("Death")]
     [Tooltip("사망 연출(죽으면 열린 창을 모두 닫은 뒤 켰다가 deathEffectSeconds 뒤에 끈다). 비워 두면 창만 닫는다")]
@@ -98,7 +123,8 @@ public class GamePlayUI : MonoBehaviour
     Animator panelAni;
     Animator territoryAni;
     Animator descriptionAni;
-    Animator resultAni;    
+    Animator abilityAni;
+    Animator illustrationAni;
 
     private Coroutine scanCo;
     private Coroutine invCo;
@@ -134,7 +160,8 @@ public class GamePlayUI : MonoBehaviour
         panelAni = characterPanel.GetComponent<Animator>();
         territoryAni = territoryText.GetComponent<Animator>();
         descriptionAni = descriptionText.GetComponent<Animator>();
-        resultAni = resultUI.GetComponent<Animator>();
+        if (abilityText != null) abilityAni = abilityText.GetComponent<Animator>();
+        if (roleIllustrationRoot != null) illustrationAni = roleIllustrationRoot.GetComponent<Animator>();
 
         // 캐릭터 소개 글자는 연출이 끝나도 투명한 채 켜져 있어서, 클릭을 받으면 그 아래 창의 버튼
         // (탐색 결과 창의 확인 버튼 등)이 눌리지 않는다. 보여 주기만 하는 글자이므로 클릭을 받지 않게 한다
@@ -147,32 +174,90 @@ public class GamePlayUI : MonoBehaviour
         localPlayer = lgp;
     }
 
+    // 시작 연출 없이 로딩 화면만 걷는다(캐릭터 정보가 없을 때). 검은 패널이 남아 화면을 가리지 않게 한다
+    public void SkipIntro()
+    {
+        if (loadingIndicator != null) loadingIndicator.SetActive(false);
+        if (characterPanel != null) characterPanel.SetActive(false);
+    }
+
     public IEnumerator ShowCharacter(AnimalType type)
     {
         if (!CharacterConfig.Characters.TryGetValue(type, out CharacterInfoData info))
         {
             Debug.LogWarning($"[GamePlayUI] 캐릭터 정보가 없어 소개 연출을 건너뜁니다: {type}");
+            SkipIntro();
             yield break;
         }
+
+        if (loadingIndicator != null) loadingIndicator.SetActive(false);
 
         UIManager.Instance.Push(UIPriority.Modal);
 
         characterText.text = $"{info.DisplayName}";
         territoryText.text = $"거주지: {TranslateTerritory(info.HomeTerritory)}";
         descriptionText.text = info.WinConditionDescription;
+        if (abilityText != null) abilityText.text = info.AbilityDescription;
+        SetRoleIllustration(type);
 
         textAni.SetTrigger("ShowText");
         panelAni.SetTrigger("ShowPanel");
         territoryAni.SetTrigger("Territory");
         descriptionAni.SetTrigger("Description");
+        if (abilityAni != null) abilityAni.SetTrigger("Description");
+        if (illustrationAni != null) illustrationAni.SetTrigger("Illustration");
  
         yield return new WaitForSeconds(characterIntroSeconds);
 
         characterPanel.SetActive(false);
+        if (roleIllustrationRoot != null) roleIllustrationRoot.SetActive(false);
 
         yield return new WaitForSeconds(characterIntroUnlockDelay);
 
         UIManager.Instance.Pop(UIPriority.Modal);
+    }
+
+    // 동물 일러스트가 있으면 그것을, 없으면 내 캐릭터 모습(플레이어 색 + 의상)을 보여 준다
+    private void SetRoleIllustration(AnimalType type)
+    {
+        if (roleIllustrationRoot == null) return;
+        roleIllustrationRoot.SetActive(true);
+
+        Sprite illustration = null;
+        foreach (var entry in roleIllustrations)
+        {
+            if (entry.type == type) { illustration = entry.sprite; break; }
+        }
+
+        if (roleIllustrationImage != null)
+        {
+            roleIllustrationImage.sprite = illustration;
+            roleIllustrationImage.enabled = illustration != null;
+        }
+
+        bool useFallback = illustration == null;
+        // 시작 연출이 InitLocalPlayer보다 먼저 올 수 있어 Mirror의 로컬 플레이어도 확인한다
+        GamePlayer me = localPlayer;
+        if (me == null && NetworkClient.localPlayer != null) me = NetworkClient.localPlayer.GetComponent<GamePlayer>();
+        CostumeData costume = useFallback && me != null ? CostumeCatalog.Get(me.costumeIndex) : null;
+        Color bodyColor = me != null ? me.gpColor : Color.white;
+        bodyColor.a = 1f;
+
+        if (fallbackBodyImage != null)
+        {
+            Sprite body = costume != null && costume.bodySprite != null ? costume.bodySprite : defaultBodySprite;
+            fallbackBodyImage.sprite = body;
+            fallbackBodyImage.color = bodyColor;
+            fallbackBodyImage.enabled = useFallback && body != null;
+        }
+
+        if (fallbackOverlayImage != null)
+        {
+            Sprite overlay = costume != null ? costume.overlaySprite : null;
+            fallbackOverlayImage.sprite = overlay;
+            fallbackOverlayImage.color = costume != null && costume.tintOverlay ? bodyColor : Color.white;
+            fallbackOverlayImage.enabled = useFallback && overlay != null;
+        }
     }
 
     public void UpdateRoundText(int round, RoundTime time)
@@ -556,6 +641,15 @@ public class GamePlayUI : MonoBehaviour
     // 결과나 실패 안내는 남기지 않는다(서버도 GamePlayer.Die에서 탐색·부검을 즉시 중단한다)
     public void BeginLocalDeath()
     {
+        CloseAllWindows();
+
+        if (deathCo != null) StopCoroutine(deathCo);
+        deathCo = StartCoroutine(CoPlayDeathEffect());
+    }
+
+    // 준비·진행 중이던 행동(탐색 확인/진행, 부검 진행)을 취소하고 열린 창을 모두 닫는다(사망, 게임 종료 때)
+    private void CloseAllWindows()
+    {
         DeActiveInvestigationSelectUI();
         OnCorpseScanCanceled();
 
@@ -568,9 +662,23 @@ public class GamePlayUI : MonoBehaviour
         // 여기서 직접 닫지 않은 창(탐색 노트, 우클릭 메뉴, 미니맵 전체화면 등)
         if (UIManager.Instance != null)
             UIManager.Instance.CloseAllEscapable();
+    }
 
-        if (deathCo != null) StopCoroutine(deathCo);
-        deathCo = StartCoroutine(CoPlayDeathEffect());
+    // 결과 화면을 띄울 때 재생 중이던 사망 연출을 끝낸다(마지막 공격으로 죽으며 게임이 끝난 경우)
+    private void StopDeathEffect()
+    {
+        if (deathCo != null)
+        {
+            StopCoroutine(deathCo);
+            deathCo = null;
+        }
+
+        // 연출 오브젝트가 켜져 있을 때만 Push가 된 상태다(연결 안 된 경우 코루틴은 Push 없이 바로 끝난다)
+        if (deathEffectUI == null || !deathEffectUI.activeSelf) return;
+
+        deathEffectUI.SetActive(false);
+        UIManager.Instance.Pop(UIPriority.Modal);
+        UIManager.UnregisterEscape(DeathEffectEscapeKey);
     }
 
     private IEnumerator CoPlayDeathEffect()
@@ -594,15 +702,13 @@ public class GamePlayUI : MonoBehaviour
         deathCo = null;
     }
 
-    private void OnSelectInvestigationTarget(GamePlayer target)
+    private void OnSelectInvestigationTarget(uint targetNetId, string targetNickname)
     {
-        if (target == null) return;
-
-        InvestigationTargetNetId = target.netId;
-        InvestigationTargetNickname = target.nickname;
+        InvestigationTargetNetId = targetNetId;
+        InvestigationTargetNickname = targetNickname;
 
         DestroyBtn();
-        investigationResult.text = $"{target.nickname}를(을) 탐색하시겠습니까?";
+        investigationResult.text = $"{targetNickname}를(을) 탐색하시겠습니까?";
         invCheckBtnGroup.SetActive(true);
     }
 
@@ -630,19 +736,25 @@ public class GamePlayUI : MonoBehaviour
         // 횟수를 다 쓰면 대상 목록을 띄우지 않는다
         if (localPlayer == null || localPlayer.RemainingInvestigationCount <= 0) return;
 
-        var players = GameMamager.Instance.players;
-
-        foreach (var p in players)
+        foreach (var p in GameMamager.Instance.players)
         {
             // 나간 플레이어는 목록에 null로 남을 수 있다
             if (p == null || p == localPlayer) continue;
-
-            var btnObj = Instantiate(uiButtonPrefab, investigationButtonGroup);
-            var label = btnObj.GetComponentInChildren<TextMeshProUGUI>().text = p.nickname;
-
-            var button = btnObj.GetComponent<Button>();
-            button.onClick.AddListener(() => OnSelectInvestigationTarget(p));
+            AddInvestigationTargetButton(p.netId, p.nickname);
         }
+
+        // 게임 도중 나간 플레이어도 계속 탐색할 수 있다(서버가 나간 순간의 정보로 결과를 준다)
+        foreach (var left in GameMamager.Instance.leftPlayers)
+            AddInvestigationTargetButton(left.netId, left.nickname);
+    }
+    void AddInvestigationTargetButton(uint targetNetId, string targetNickname)
+    {
+        var btnObj = Instantiate(uiButtonPrefab, investigationButtonGroup);
+        var label = btnObj.GetComponentInChildren<TextMeshProUGUI>();
+        if (label != null) label.text = targetNickname;
+
+        var button = btnObj.GetComponent<Button>();
+        if (button != null) button.onClick.AddListener(() => OnSelectInvestigationTarget(targetNetId, targetNickname));
     }
     void DestroyBtn()
     {
@@ -770,16 +882,19 @@ public class GamePlayUI : MonoBehaviour
         block.SetActive(false);
     }
   
-    public void ShowResult(bool isWin)
+    // 진행 중인 미션은 GamePlayer.TargetShowGameResult에서 먼저 취소한다. 여기서는 나머지 창을 닫고 결과 화면만 남긴다
+    public void ShowResult(GameResultEntry[] entries)
     {
-        if (isWin)
-            resultText.text = "승 리";
-        else
-            resultText.text = "패 배";
+        StopDeathEffect();
+        CloseAllWindows();
+
+        if (resultBoard != null)
+            resultBoard.Show(entries, localPlayer != null ? localPlayer.netId : 0);
 
         chatUI.SetActive(false);
+        // 다른 창보다 위에 그린다
+        resultUI.transform.SetAsLastSibling();
         resultUI.SetActive(true);
-        resultAni.SetTrigger("ShowResult");
     }
 
     public void SetDisguiseOptions()
@@ -788,10 +903,10 @@ public class GamePlayUI : MonoBehaviour
         foreach (Transform child in disguiseButtonGroup)
             Destroy(child.gameObject);
 
-        // 위장 후보는 모든 동물
+        // 위장 후보는 카멜레온을 뺀 모든 동물(서버도 GamePlayer.CmdSetDisguise에서 같은 조건으로 거른다)
         foreach (AnimalType type in Enum.GetValues(typeof(AnimalType)))
         {
-            if (type == AnimalType.None) continue;
+            if (type == AnimalType.None || type == AnimalType.Chameleon) continue;
             if (!AnimalNameMap.AnimalTypeToName.TryGetValue(type, out string label)) continue;
 
             AnimalType candidate = type;

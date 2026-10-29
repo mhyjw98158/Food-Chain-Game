@@ -276,11 +276,31 @@ public class GamePlayer : NetworkBehaviour
         _knownDeadNetIds.Add(deadNetId);
     }
 
-    [TargetRpc]
-    public void TargetShowGameResult(bool isWinner)
+    // 결과 화면용 정보(실제 역할 포함). 게임이 끝났을 때와 게임 도중 나갈 때 서버에서 만든다
+    [Server]
+    public GameResultEntry ServerMakeResultEntry(bool isWinner)
     {
+        return new GameResultEntry
+        {
+            netId = netId,
+            nickname = nickname,
+            animalType = animalType,
+            isPredator = isPredator,
+            isWinner = isWinner,
+            color = gpColor,
+            costumeIndex = costumeIndex
+        };
+    }
+
+    [TargetRpc]
+    public void TargetShowGameResult(GameResultEntry[] entries)
+    {
+        // 게임이 끝나면 진행 중이던 미션과 서버 응답을 기다리던 미션 시작 요청을 취소한다(결과 화면만 보이도록)
+        FailProgressMission();
+        CancelPendingMissionRequest();
+
         if (GamePlayUI.Instance != null)
-            GamePlayUI.Instance.ShowResult(isWinner);
+            GamePlayUI.Instance.ShowResult(entries);
 
         // 음성: 결과 화면부터는 생존자·유령 구분 없이 전원이 서로 들린다
         VoiceManager.Instance?.EnterResult(RoomSessionData.CurrentRoomCode);
@@ -340,7 +360,12 @@ public class GamePlayer : NetworkBehaviour
     {
         yield return new WaitForSeconds(0.1f);
 
-        if (GamePlayUI.Instance == null || animalType == AnimalType.None) yield break;
+        if (GamePlayUI.Instance == null) yield break;
+        if (animalType == AnimalType.None)
+        {
+            GamePlayUI.Instance.SkipIntro();
+            yield break;
+        }
 
         StartCoroutine(GamePlayUI.Instance.ShowCharacter(animalType));
     }
@@ -840,6 +865,8 @@ public class GamePlayer : NetworkBehaviour
         if (!CanDisguise) return;
         if (HasDisguised) return;
         if (selectedType == AnimalType.None || !AnimalNameMap.AnimalTypeToName.ContainsKey(selectedType)) return;
+        // 카멜레온으로는 위장할 수 없다(위장 목록에서도 뺀다)
+        if (selectedType == AnimalType.Chameleon) return;
         // 위장은 위장 오브젝트 근처에서만 할 수 있다
         if (!DisguiseObject.IsAnyInRange(transform.position)) return;
 
@@ -1190,7 +1217,7 @@ public class GamePlayer : NetworkBehaviour
         ServerStopInvestigation();
 
         if (scanCount >= MaxInvestigationCount
-            || !ServerCanInvestigate() || !ServerTryGetInvestigationTarget(targetNetId, out _))
+            || !ServerCanInvestigate() || !ServerTryGetInvestigationTarget(targetNetId, out _, out _, out _))
         {
             TargetInvestigationCanceled();
             return;
@@ -1220,14 +1247,38 @@ public class GamePlayer : NetworkBehaviour
         return isAlive && InvestigationObject.IsAnyInRange(transform.position);
     }
 
-    private bool ServerTryGetInvestigationTarget(uint targetNetId, out GamePlayer target)
+    // 게임 도중 나간 플레이어는 오브젝트가 없으므로 GameMamager가 나간 순간 남겨 둔 정보로 탐색한다
+    [Server]
+    private bool ServerTryGetInvestigationTarget(uint targetNetId, out string targetNickname, out AnimalType shownType, out bool shownIsPredator)
     {
-        target = null;
+        targetNickname = null;
+        shownType = AnimalType.None;
+        shownIsPredator = false;
         if (targetNetId == netId) return false;
-        if (!NetworkServer.spawned.TryGetValue(targetNetId, out var identity) || identity == null) return false;
 
-        target = identity.GetComponent<GamePlayer>();
-        return target != null;
+        if (NetworkServer.spawned.TryGetValue(targetNetId, out var identity) && identity != null
+            && identity.TryGetComponent(out GamePlayer target))
+        {
+            targetNickname = target.nickname;
+            target.ServerGetShownIdentity(out shownType, out shownIsPredator);
+            return true;
+        }
+
+        return GameMamager.Instance != null
+            && GameMamager.Instance.ServerTryGetLeftPlayer(targetNetId, out targetNickname, out shownType, out shownIsPredator);
+    }
+
+    // 탐색했을 때 보이는 동물. 위장 중인 카멜레온은 위장한 동물로 보인다(위장 값이 비정상이면 실제 동물로 대체)
+    [Server]
+    public void ServerGetShownIdentity(out AnimalType shownType, out bool shownIsPredator)
+    {
+        shownType = animalType;
+        shownIsPredator = isPredator;
+        if (disguisedAs != AnimalType.None && AnimalNameMap.AnimalTypeToName.ContainsKey(disguisedAs))
+        {
+            shownType = disguisedAs;
+            shownIsPredator = IsPredatorAnimal(shownType);
+        }
     }
 
     // 탐색 시간과 조건(생존/거리/횟수)은 서버가 직접 재고, 끝까지 유지됐을 때만 결과를 보낸다.
@@ -1250,7 +1301,8 @@ public class GamePlayer : NetworkBehaviour
 
         _serverInvestigationCo = null;
 
-        if (!ServerCanInvestigate() || !ServerTryGetInvestigationTarget(targetNetId, out var target))
+        if (!ServerCanInvestigate()
+            || !ServerTryGetInvestigationTarget(targetNetId, out string targetNickname, out AnimalType shownType, out bool shownIsPredator))
         {
             TargetInvestigationCanceled();
             yield break;
@@ -1262,17 +1314,8 @@ public class GamePlayer : NetworkBehaviour
             yield break;
         }
 
-        // 위장 중인 카멜레온은 위장한 동물로 보인다(위장 값이 비정상이면 실제 동물로 대체)
-        AnimalType shownType = target.animalType;
-        bool shownIsPredator = target.isPredator;
-        if (target.disguisedAs != AnimalType.None && AnimalNameMap.AnimalTypeToName.ContainsKey(target.disguisedAs))
-        {
-            shownType = target.disguisedAs;
-            shownIsPredator = IsPredatorAnimal(shownType);
-        }
-
         scanCount++;
-        TargetInvestigationResult(targetNetId, target.nickname, shownType, shownIsPredator);
+        TargetInvestigationResult(targetNetId, targetNickname, shownType, shownIsPredator);
     }
 
     private static bool IsPredatorAnimal(AnimalType type)

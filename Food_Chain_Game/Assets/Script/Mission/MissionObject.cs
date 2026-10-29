@@ -9,7 +9,7 @@ public class MissionObject : MonoBehaviour
 
     [SerializeField] private Collider2D triggerCollider;
 
-    [Tooltip("서버가 미션 시작/완료를 허용하는 최대 거리. 자식 트리거(클릭 가능 영역)를 덮도록 넉넉하게 설정")]
+    [Tooltip("서버가 미션 시작/완료를 허용하는 최대 거리. 자식 트리거(상호작용 영역)를 덮도록 넉넉하게 설정")]
     [SerializeField] private float interactRange = 4f;
 
     [Tooltip("서버가 완료를 인정하는 최소 소요 시간(초). 시작 승인 후 이보다 빨리 온 완료 요청은 거부된다. 정상 플레이의 최단 클리어 시간보다 작게 설정")]
@@ -64,21 +64,8 @@ public class MissionObject : MonoBehaviour
 
         if (!enabled) SetHighlight(false);
     }
-    private void OnMouseDown()
-    {
-        if (_localPlayerInRange == null) return;
-        TryInteract();
-    }
 
-    private void TryInteract()
-    {
-        if (_localPlayerInRange == null) return;
-        if (UIManager.Instance != null && !UIManager.Instance.CanInteract()) return;
-        if (!_localPlayerInRange.CanDoMissions) return;
-        if (!_localPlayerInRange.CanStartMissionType(missionType)) return;
-
-        _localPlayerInRange.TryStartMission(missionType);
-    }
+    // 미션은 상호작용 키로만 시작한다(PlayerMove → Scanner.CurrentMission). 오브젝트 클릭으로는 시작하지 않는다
 
     public void OnPlayerEnter(GamePlayer player)
     {
