@@ -1,0 +1,127 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ecc9926c7c3865b47bf2df34837a7bde, type: 3}
+  m_Name: NicknameRules
+  m_EditorClassIdentifier: Assembly-CSharp::NicknameRules
+  maxLength: 8
+  fallbackNickname: Player
+  firstDuplicateNumber: 2
+  bannedWords:
+  - "\uC2DC\uBC1C"
+  - "\uC528\uBC1C"
+  - "\uC528\uBE68"
+  - "\uC2DC\uBE68"
+  - "\uC528\uD314"
+  - "\uC2DC\uD314"
+  - "\uC528\uBC14"
+  - "\uC2DC\uBC14\uC0C8"
+  - "\uC4F0\uBC1C"
+  - "\u3145\u3142"
+  - "\u3146\u3142"
+  - "\u3145\u314D"
+  - "\uBCD1\uC2E0"
+  - "\uBE05\uC2E0"
+  - "\uBE59\uC2E0"
+  - "\u3142\u3145"
+  - "\u3144"
+  - "\uC886"
+  - "\uC883"
+  - "\uC870\uAE4C"
+  - "\uC874\uB098"
+  - "\uC878\uB77C\uAC8C"
+  - "\u3148\u3134"
+  - "\u3148\u3139"
+  - "\uC9C0\uB784"
+  - "\u3148\uAC19"
+  - "\uAC1C\uC0C8\uB07C"
+  - "\uAC1C\uC0C8"
+  - "\uAC1C\uC0C9\uAE30"
+  - "\uAC1C\uC138\uB07C"
+  - "\uC0C8\uB07C"
+  - "\uC0C9\uD788"
+  - "\u3145\u3132"
+  - "\u3131\u3145\u3132"
+  - "\uBBF8\uCE5C\uB188"
+  - "\uBBF8\uCE5C\uB144"
+  - "\uBBF8\uCE5C\uC0C8"
+  - "\uB610\uB77C\uC774"
+  - "\uB3CC\uC544\uC774"
+  - "\uC345"
+  - "\uC30D\uB188"
+  - "\uC30D\uB144"
+  - "\uAC78\uB808\uB144"
+  - "\uCC3D\uB140"
+  - "\uCC3D\uB144"
+  - "\uD654\uB0E5"
+  - "\uC139\uC2A4"
+  - "\uB290\uAE08"
+  - "\uB2C8\uC560\uBBF8"
+  - "\uB2C8\uC5D0\uBBF8"
+  - "\uC5E0\uCC3D"
+  - "\uC5FC\uBCD1"
+  - "\uD6C4\uC7A5"
+  - "\uB538\uB538\uC774"
+  - "\uB2E5\uCCD0"
+  - "\uC77C\uBCA0"
+  - "\uAE40\uCE58\uB140"
+  - "\uB41C\uC7A5\uB140"
+  - fuck
+  - fuk
+  - fck
+  - shit
+  - bitch
+  - asshole
+  - cunt
+  - nigger
+  - nigga
+  - faggot
+  - porn
+  - pussy
+  - retard
+  - slut
+  - whore
+  - sibal
+  - ssibal
+  - tlqkf
+  - qudtls
+  - whssk
+  - wlfkf
+  - rotoRl
+  exactBannedWords:
+  - "\uBCF4\uC9C0"
+  - "\uC790\uC9C0"
+  - "\uC560\uBBF8"
+  - "\uC5D0\uBBF8"
+  - "\uB2C8\uBBF8"
+  - "\uD55C\uB0A8"
+  - "\uD638\uB85C"
+  - "\uC2DC\uBC14"
+  - dick
+  - cock
+  - sex
+  - ass
+  - cum
+  - system
+  - "\uC2DC\uC2A4\uD15C"
+  - "\uAD00\uB9AC\uC790"
+  - "\uC6B4\uC601\uC790"
+  - "\uBC29\uC7A5"
+  - admin
+  - administrator
+  - gm
+  emptyMessage: "\uB2C9\uB124\uC784\uC744 \uC791\uC131\uD574\uC8FC\uC138\uC694."
+  tooLongMessage: "\uB2C9\uB124\uC784\uC740 {0}\uAE00\uC790 \uC774\uD558\uB85C \uC9C0\uC5B4\uC8FC\uC138\uC694."
+  bannedMessage: "\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294 \uB2C9\uB124\uC784\uC785\uB2C8\uB2E4."
+  duplicateNotice: "\uAC19\uC740 \uB2C9\uB124\uC784\uC774 \uC788\uC5B4 \uC774 \uBC29\uC5D0\uC11C\uB294
+    {0}(\uC73C)\uB85C \uD45C\uC2DC\uB429\uB2C8\uB2E4."
+  replacedNotice: "\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294 \uB2C9\uB124\uC784\uC774\uB77C
+    \uC774 \uBC29\uC5D0\uC11C\uB294 {0}(\uC73C)\uB85C \uD45C\uC2DC\uB429\uB2C8\uB2E4."

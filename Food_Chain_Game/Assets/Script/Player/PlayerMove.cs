@@ -35,8 +35,8 @@ public class PlayerMove : NetworkBehaviour
     private void Move()
     {
         if (!isLocalPlayer) return;
-        if (!UIManager.Instance.CanMove()) return;
-        if (ChatInputFocus.IsFocused || (GameMamager.Instance != null && !GameMamager.Instance.isRoundActive))
+        // 이동이 잠기면 방향도 지운다. 남겨 두면 FixedUpdate가 마지막 방향으로 계속 움직인다
+        if (!UIManager.Instance.CanMove() || ChatInputFocus.IsFocused || (GameMamager.Instance != null && !GameMamager.Instance.isRoundActive))
         {
             movement = Vector2.zero;
             return;

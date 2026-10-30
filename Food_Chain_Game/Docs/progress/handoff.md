@@ -52,6 +52,10 @@
 - 강체가 없는 차단막(밤 차단막, 하늘 차단막)은 판정에서 뺐다. 그래서 차단막을 넘는 치트는 막지 못한다
 - 이동 속도를 바꾸는 기능을 넣을 때는 `PlayerMove.moveSpeed`를 쓰면 예산도 따라간다
 
+### 닉네임 (`NicknameRules`)
+- 금지어는 `Assets/Resources/NicknameRules.asset`에서 고친다. 정상 단어에 들어가기 쉬운 말은 `exactBannedWords`에 넣는다
+- 방에서 보이는 이름은 서버가 `RoomPlayer.CmdSetData`에서 정하고(숫자 붙음), 저장된 닉네임(`NickNamemanager`)과 다를 수 있다. 내 방 이름이 필요하면 `NickNamemanager`가 아니라 `RoomPlayer.nickname`을 쓴다
+
 ### 끊김 안내
 - 문구와 오류 코드는 `NetworkErrorMessages` 한곳에 있다. 새 사유는 `NetworkErrorReason`에 코드를 정해 추가하고 `GetText`에 문구를 넣는다. 폰트 `KCC-Hanbit SDF`가 정적 아틀라스라 새 글자는 없을 수 있으니 `HasCharacters`로 확인한다
 - 클라이언트 오류는 `OnClientError`에서 기록만 하고 타이틀 복귀는 `OnClientDisconnect`에서 한다. 게임 버전은 `Application.version`(Player Settings의 Version)을 비교한다

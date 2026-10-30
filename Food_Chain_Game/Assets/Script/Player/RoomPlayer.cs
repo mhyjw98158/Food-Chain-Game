@@ -29,7 +29,6 @@ public class RoomPlayer : NetworkRoomPlayer
     public TextMeshProUGUI nicknameText;
 
     [Header("Input Limits")]
-    [SerializeField] private int maxNicknameLength = 8;
     [SerializeField] private int maxChatLength = 200;
     // 본인: 이 RoomPlayer로 닉네임·색·의상을 이미 서버에 보냈는지.
     // 게임 후 로비로 돌아오면 같은 RoomPlayer에 OnStartLocalPlayer가 다시 불리는데, 그 순간에는 연결이 아직 준비 전이라
@@ -314,15 +313,22 @@ public class RoomPlayer : NetworkRoomPlayer
     [Command]
     void CmdSetData(string nick)
     {
-        nick = string.IsNullOrWhiteSpace(nick) ? "Player" : nick.Trim();
-        if (nick.Length > maxNicknameLength) nick = nick.Substring(0, maxNicknameLength);
+        // 나중에 들어온 사람에게 숫자가 붙도록 지금 방에 있는 다른 플레이어의 이름과 비교한다
+        var taken = new List<string>();
+        foreach (var other in FindObjectsByType<RoomPlayer>(FindObjectsSortMode.None))
+        {
+            if (other != this) taken.Add(other.nickname);
+        }
 
-        nickname = TextSanitizer.BlockRichText(nick);
+        nickname = TextSanitizer.BlockRichText(NicknameRules.Instance.MakeRoomNickname(nick, taken, out string notice));
 
         if (!_joinAnnounced)
         {
             _joinAnnounced = true;
             ServerBroadcastSystemMessage($"{nickname}님이 입장하셨습니다.");
+
+            if (!string.IsNullOrEmpty(notice))
+                TargetReceiveMessage(0, "System", notice);
         }
 
         // 새 플레이어가 들어올 때마다 방장을 다시 정한다(첫 입장자가 방장이 되는 것도 여기서 결정)

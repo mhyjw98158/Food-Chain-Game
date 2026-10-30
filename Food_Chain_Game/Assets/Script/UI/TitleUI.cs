@@ -34,8 +34,7 @@ public class TitleUI : MonoBehaviour
     public static int SelectedPlayerCount = 1;
     public int maxPlayer = 0;
 
-    [Header("Nickname / Room")]
-    [SerializeField] private int maxNicknameLength = 8;
+    [Header("Room")]
     [SerializeField] private int maxSelectablePlayerCount = 13;
 
     // 방 생성/입장 버튼 연타로 씬이 두 번 로드되는 것을 막는다
@@ -93,6 +92,13 @@ public class TitleUI : MonoBehaviour
         {
             nicknameDisplay.text = $"닉네임: {NickNamemanager.GetNickname()}";
             changeButton.gameObject.SetActive(true);
+
+            // 금지어가 추가되기 전에 저장한 닉네임이면 바꾸도록 안내한다(그대로 입장하면 서버가 대체 이름을 쓴다)
+            if (NicknameRules.Instance.IsBanned(NickNamemanager.GetNickname()))
+            {
+                ChangeShowPopup();
+                noticeText.text = NicknameRules.Instance.BannedMessage;
+            }
         }
     }
     void UISetting()
@@ -148,24 +154,20 @@ public class TitleUI : MonoBehaviour
     public void SaveNickname()
     {
         string nickname = nicknameInput.text.Trim();
-        if (!string.IsNullOrEmpty(nickname))
+
+        string error = NicknameRules.Instance.Validate(nickname);
+        if (error != null)
         {
-            if(nickname.Length > maxNicknameLength)
-            {
-                noticeText.text = $"닉네임은 {maxNicknameLength}글자 이하로 지어주세요.";
-                return;
-            }
-                
-            NickNamemanager.SetNickname(nickname);
-            nicknameDisplay.text = $"닉네임: {nickname}";
-            nicknamePopup.SetActive(false);
-            changeButton.gameObject.SetActive(true);
-            activeUi = null;
+            noticeText.text = error;
+            return;
         }
-        else
-        {
-            noticeText.text = "닉네임을 작성해주세요.";
-        }
+
+        NickNamemanager.SetNickname(nickname);
+        nicknameDisplay.text = $"닉네임: {nickname}";
+        noticeText.text = "";
+        nicknamePopup.SetActive(false);
+        changeButton.gameObject.SetActive(true);
+        activeUi = null;
     }
 
     public void OnQuitBtnClicked()
