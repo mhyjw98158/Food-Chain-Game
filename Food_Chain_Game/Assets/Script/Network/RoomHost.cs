@@ -87,7 +87,7 @@ public class RoomHost : MonoBehaviour
 
                 // 응답 코드 0 = 서버에 닿지 못함(연결 실패, 시간 초과), 429 = 요청 횟수 제한
                 onResult?.Invoke(false, req.responseCode == 0
-                    ? "서버와 연결할 수 없습니다."
+                    ? NetworkErrorMessages.ServerUnreachable()
                     : req.responseCode == 429
                         ? "요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
                         : "방을 만들지 못했습니다. 나중에 다시 시도해주세요.");

@@ -18,6 +18,12 @@ module.exports = {
             env: {
                 PORT: 3000,
             },
+            // Cloudflare Tunnel 뒤에서 실행: pm2 start ecosystem.config.js --env tunnel
+            env_tunnel: {
+                PORT: 3000,
+                HOST: "127.0.0.1",
+                TRUST_CF_CONNECTING_IP: "1",
+            },
         },
     ],
 };

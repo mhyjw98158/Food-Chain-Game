@@ -14,12 +14,22 @@ public enum RoomNoticeReason : byte
     None,
     GameInProgress,
     RoomFull,
-    HostClosedRoom
+    HostClosedRoom,
+    Kicked,
+    Banned,
+    VersionMismatch
 }
 
 public struct RoomNoticeMessage : NetworkMessage
 {
     public RoomNoticeReason reason;
+}
+
+// 클라이언트가 접속 직후 보내는 기기 ID와 게임 버전. 플레이어 생성 요청보다 먼저 도착하므로 추방된 기기나 버전이 다른 클라이언트는 플레이어가 만들어지기 전에 거부된다
+public struct ClientIdentityMessage : NetworkMessage
+{
+    public string clientId;
+    public string gameVersion;
 }
 
 public class RoomManager : NetworkRoomManager
@@ -97,8 +107,17 @@ public class RoomManager : NetworkRoomManager
 
     // 서버: 입장을 거부해 곧 끊을 연결(그사이 플레이어 생성 요청이 와도 무시)
     private readonly HashSet<NetworkConnectionToClient> _rejectedConnections = new();
+    // 서버: 연결별 기기 ID와, 이 방에서 추방된 기기 ID. 추방은 방이 닫힐 때까지 유지된다(게임 후 로비로 돌아와도 남는다)
+    private readonly Dictionary<NetworkConnectionToClient, string> _clientIds = new();
+    private readonly HashSet<string> _bannedClientIds = new();
+    // 서버: 전송 오류로 끊어진 연결. 스스로 나간 플레이어와 구분해 남은 플레이어에게 안내한다
+    private readonly HashSet<NetworkConnectionToClient> _lostConnections = new();
     // 클라: 서버가 알려준 끊김 사유
     private RoomNoticeReason _pendingNotice = RoomNoticeReason.None;
+    // 클라: 전송 계층이 알려준 오류. 끊김 처리 때 사유로 쓴다
+    private NetworkErrorReason _pendingError = NetworkErrorReason.None;
+    // 클라: 이번 접속이 한 번이라도 연결됐는지(접속 실패와 연결 끊김을 구분한다)
+    private bool _clientConnected;
     private bool _leaving;
     private readonly HashSet<NetworkConnectionToClient> joinedConnections = new();
     public List<RoomPlayer> roomPlayers = new();
@@ -168,23 +187,98 @@ public class RoomManager : NetworkRoomManager
         _pendingNotice = message.reason;
 
         // 입장 거부는 서버가 끊어 주기를 기다리지 않고 스스로 나간다
-        if (message.reason == RoomNoticeReason.GameInProgress || message.reason == RoomNoticeReason.RoomFull)
+        if (message.reason == RoomNoticeReason.GameInProgress || message.reason == RoomNoticeReason.RoomFull
+            || message.reason == RoomNoticeReason.Kicked || message.reason == RoomNoticeReason.Banned
+            || message.reason == RoomNoticeReason.VersionMismatch)
             StartCoroutine(ReturnToTitleCoroutine());
     }
 
-    // 끊김 사유를 한 번 꺼내 쓰고 비운다. 서버가 알려준 사유가 없으면 fallback을 그대로 쓴다
-    private string ConsumeDisconnectMessage(string fallback)
+    // 끊김 사유를 한 번 꺼내 쓰고 비운다. 서버가 알려준 사유 → 전송 오류 → 연결 상태 순으로 정한다
+    private NetworkErrorReason ConsumeDisconnectReason()
     {
-        RoomNoticeReason reason = _pendingNotice;
+        RoomNoticeReason notice = _pendingNotice;
+        NetworkErrorReason error = _pendingError;
         _pendingNotice = RoomNoticeReason.None;
+        _pendingError = NetworkErrorReason.None;
 
-        return reason switch
+        switch (notice)
         {
-            RoomNoticeReason.GameInProgress => "게임이 진행 중인 방에는 입장할 수 없습니다.",
-            RoomNoticeReason.RoomFull => "방 인원이 가득 찼습니다.",
-            RoomNoticeReason.HostClosedRoom => "방장이 방을 닫았습니다.",
-            _ => fallback
-        };
+            case RoomNoticeReason.GameInProgress: return NetworkErrorReason.GameInProgress;
+            case RoomNoticeReason.RoomFull: return NetworkErrorReason.RoomFull;
+            case RoomNoticeReason.HostClosedRoom: return NetworkErrorReason.HostClosedRoom;
+            case RoomNoticeReason.Kicked: return NetworkErrorReason.Kicked;
+            case RoomNoticeReason.Banned: return NetworkErrorReason.Banned;
+            case RoomNoticeReason.VersionMismatch: return NetworkErrorReason.VersionMismatch;
+        }
+
+        // 내 인터넷이 끊겼다면 방장 쪽 문제로 안내하지 않는다
+        if (Application.internetReachability == NetworkReachability.NotReachable)
+            return NetworkErrorReason.NoInternet;
+
+        if (error != NetworkErrorReason.None) return error;
+
+        return _clientConnected ? NetworkErrorReason.ConnectionLost : NetworkErrorReason.ConnectFailed;
+    }
+
+    private NetworkErrorReason ToErrorReason(TransportError error)
+    {
+        switch (error)
+        {
+            case TransportError.DnsResolve: return NetworkErrorReason.DnsFailed;
+            case TransportError.Refused: return NetworkErrorReason.ConnectFailed;
+            case TransportError.Timeout: return _clientConnected ? NetworkErrorReason.ConnectionTimeout : NetworkErrorReason.ConnectTimeout;
+            case TransportError.ConnectionClosed: return _clientConnected ? NetworkErrorReason.ConnectionLost : NetworkErrorReason.ConnectFailed;
+            case TransportError.Congestion: return NetworkErrorReason.Congestion;
+            case TransportError.InvalidReceive: return NetworkErrorReason.InvalidData;
+            default: return NetworkErrorReason.Unknown;
+        }
+    }
+
+    // 전송 오류로 끊어질 때 해당하는 오류들. InvalidSend는 메시지 하나만 버리고 연결은 유지된다
+    private static bool IsFatalTransportError(TransportError error)
+    {
+        return error != TransportError.InvalidSend;
+    }
+
+    // 호스트/클라이언트를 시작하지 못했을 때. 방을 이미 Node 서버에 등록했다면 지운다(토큰이 없는 입장자는 아무 일도 하지 않는다)
+    public void AbortSessionStart(NetworkErrorReason reason)
+    {
+        if (roomHost != null)
+            roomHost.DeleteRoom(RoomSessionData.CurrentRoomCode);
+
+        CleanupAndLoadTitle(reason);
+    }
+
+    private void OnClientIdentityReceived(NetworkConnectionToClient conn, ClientIdentityMessage message)
+    {
+        if (string.IsNullOrEmpty(message.clientId) || _rejectedConnections.Contains(conn)) return;
+
+        _clientIds[conn] = message.clientId;
+
+        if (message.gameVersion != Application.version)
+        {
+            Debug.LogWarning($"[RoomManager] 게임 버전이 달라 입장을 거부합니다: {message.gameVersion} (방장 {Application.version})");
+            ServerRejectConnection(conn, RoomNoticeReason.VersionMismatch);
+            return;
+        }
+
+        if (_bannedClientIds.Contains(message.clientId))
+            ServerRejectConnection(conn, RoomNoticeReason.Banned);
+    }
+
+    // 추방: 같은 기기는 이 방에 다시 들어올 수 없다. 끊는 과정은 입장 거부와 같다(사유를 받은 클라이언트가 스스로 나간다)
+    public void ServerKickPlayer(RoomPlayer target)
+    {
+        if (target == null || _startingGame || !Utils.IsSceneActive(RoomScene)) return;
+
+        NetworkConnectionToClient conn = target.connectionToClient;
+        if (conn == null || _rejectedConnections.Contains(conn)) return;
+
+        if (_clientIds.TryGetValue(conn, out string clientId))
+            _bannedClientIds.Add(clientId);
+
+        RoomPlayer.ServerBroadcastSystemMessage($"{target.nickname}님이 추방되었습니다.", target);
+        ServerRejectConnection(conn, RoomNoticeReason.Kicked);
     }
 
     // 플레이어가 직접 방(게임)에서 나갈 때 호출. 방장이면 남은 사람들에게 방이 닫혔음을 먼저 알린다
@@ -206,7 +300,7 @@ public class RoomManager : NetworkRoomManager
         }
 
         _leaving = false;
-        CleanupAndLoadTitle(showError: false, errorMessage: null);
+        CleanupAndLoadTitle(NetworkErrorReason.None);
         _userRequestedQuit = false;
     }
 
@@ -214,6 +308,10 @@ public class RoomManager : NetworkRoomManager
     {
         base.OnStartServer();
         _rejectedConnections.Clear();
+        _clientIds.Clear();
+        _bannedClientIds.Clear();
+        _lostConnections.Clear();
+        NetworkServer.ReplaceHandler<ClientIdentityMessage>(OnClientIdentityReceived, false);
         // 새 호스팅 세션이 시작되는 시점이므로, 이전 세션 종료 때 세워둔
         // 정리 가드를 다시 풀어줘야 다음 연결 끊김/에러도 정상적으로 처리된다.
         _isCleaningUp = false;
@@ -253,9 +351,12 @@ public class RoomManager : NetworkRoomManager
         _isCleaningUp = false;
 
         _pendingNotice = RoomNoticeReason.None;
+        // _pendingError는 여기서 지우지 않는다. Mirror는 Connect 다음에 OnStartClient를 부르므로
+        // 주소 찾기 실패처럼 Connect 안에서 바로 나는 오류가 먼저 기록되어 있다(세션 정리 때 지운다)
+        _clientConnected = false;
         ClientLobbyReady = false;
         _clientAddPlayerRequested = false;
-        NetworkClient.RegisterHandler<RoomNoticeMessage>(OnRoomNoticeReceived, false);
+        NetworkClient.ReplaceHandler<RoomNoticeMessage>(OnRoomNoticeReceived, false);
     }
 
     public override void OnStopClient()
@@ -269,6 +370,9 @@ public class RoomManager : NetworkRoomManager
 
     public override void OnClientConnect()
     {
+        _clientConnected = true;
+        NetworkClient.Send(new ClientIdentityMessage { clientId = ClientIdentity.Id, gameVersion = Application.version });
+
         // base는 씬 메시지를 기다릴 필요가 없을 때(이미 온라인 씬인 로비에 있음) 바로 준비·생성 요청을 한다
         _clientAddPlayerRequested = !clientLoadedScene && autoCreatePlayer;
         base.OnClientConnect();
@@ -360,6 +464,8 @@ public class RoomManager : NetworkRoomManager
 
     private void ServerCleanupDisconnectedPlayer(NetworkConnectionToClient conn)
     {
+        bool lostConnection = conn != null && _lostConnections.Remove(conn);
+
         // 게임 진행 중이면 게임 쪽에 먼저 "나감"을 알린다.
         // (이 메서드 끝의 base 호출에서 해당 연결의 플레이어 오브젝트가 파괴된다)
         GamePlayer leavingGamePlayer = null;
@@ -367,13 +473,17 @@ public class RoomManager : NetworkRoomManager
             leavingGamePlayer = conn.identity.GetComponent<GamePlayer>();
 
         if (leavingGamePlayer != null && GameMamager.Instance != null)
-            GameMamager.Instance.ServerHandlePlayerLeft(leavingGamePlayer);
+            GameMamager.Instance.ServerHandlePlayerLeft(leavingGamePlayer, lostConnection);
 
         // 로비→게임 전환 대기 중에 끊긴 연결이 남아 있으면, 서버 로딩 완료 시 파괴된 RoomPlayer로
         // 게임 캐릭터를 만들려다 예외가 나서 다른 대기 플레이어까지 생성이 막힌다
         pendingPlayers.RemoveWhere(p => p.conn == conn);
-        _rejectedConnections.Remove(conn);
-        if (conn != null) _pendingRoomTeleports.Remove(conn);
+        bool wasRejected = _rejectedConnections.Remove(conn);
+        if (conn != null)
+        {
+            _pendingRoomTeleports.Remove(conn);
+            _clientIds.Remove(conn);
+        }
 
         // 실제로 입장 처리(+1)된 연결만 퇴장(-1)으로 집계한다.
         // 게임 중 입장 시도처럼 바로 끊긴 연결까지 차감하면 Node 서버의 인원수가 실제보다 작아진다
@@ -416,10 +526,11 @@ public class RoomManager : NetworkRoomManager
 
         }
 
-        if (!string.IsNullOrEmpty(nickname) && leavingGamePlayer == null)
+        // 추방된 플레이어는 추방할 때 이미 안내했다
+        if (!string.IsNullOrEmpty(nickname) && leavingGamePlayer == null && !wasRejected)
         {
             // 남아 있는 모든 플레이어에게 알린다(나가는 본인은 이미 연결이 끊겼으므로 제외)
-            RoomPlayer.ServerBroadcastSystemMessage($"{nickname}님이 퇴장하셨습니다.", roomPlayer);                        
+            RoomPlayer.ServerBroadcastSystemMessage(lostConnection ? $"{nickname}님의 연결이 끊어졌습니다." : $"{nickname}님이 퇴장하셨습니다.", roomPlayer);                        
         }
 
         if (wasHost)
@@ -465,17 +576,22 @@ public class RoomManager : NetworkRoomManager
         {
             Debug.Log("[RoomManager] ReturnToTitleCoroutine: 사용자 요청으로 인한 종료");
             _userRequestedQuit = false;
-            CleanupAndLoadTitle(showError: false, errorMessage: null);
+            CleanupAndLoadTitle(NetworkErrorReason.None);
             yield break;
         }
 
-        CleanupAndLoadTitle(showError: true, errorMessage: ConsumeDisconnectMessage("서버와의 연결이 끊어졌습니다."));
+        CleanupAndLoadTitle(ConsumeDisconnectReason());
     }
 
-    public void CleanupAndLoadTitle(bool showError, string errorMessage)
+    // reason이 None이면 안내 없이 타이틀로 돌아간다(본인이 나간 경우)
+    public void CleanupAndLoadTitle(NetworkErrorReason reason)
     {
         if (_isCleaningUp) return;
         _isCleaningUp = true;
+        _pendingError = NetworkErrorReason.None;
+
+        // 씬이 바뀌기 전에 게임 중이었는지 기록한다
+        bool inGame = Utils.IsSceneActive(GameplayScene);
 
         VoiceManager.Instance?.LeaveAllChannels();
 
@@ -489,9 +605,9 @@ public class RoomManager : NetworkRoomManager
 
         RoomSessionData.Reset();
 
-        if (showError && NetworkErrorManager.Instance != null && !string.IsNullOrEmpty(errorMessage))
+        if (reason != NetworkErrorReason.None && NetworkErrorManager.Instance != null)
         {
-            NetworkErrorManager.Instance.SetError(NetworkErrorReason.ConnectionLost, errorMessage);
+            NetworkErrorManager.Instance.SetError(reason, inGame);
         }
 
         if (SceneManager.GetActiveScene().name != "Title")
@@ -531,20 +647,24 @@ public class RoomManager : NetworkRoomManager
         return gamePlayerObj;
     }
 
+    // 오류가 나도 바로 나가지 않고 사유만 기록한다. 전송 계층은 연결을 유지할 수 없는 오류면 스스로 끊어
+    // OnClientDisconnect로 이어지고, 메시지 하나만 실패한 오류(InvalidSend)면 게임을 계속할 수 있다
     public override void OnClientError(TransportError error, string reason)
     {
         base.OnClientError(error, reason);
+        Debug.LogWarning($"[RoomManager] 클라이언트 전송 오류 {error}: {reason}");
 
-        if (_userRequestedQuit)
-        {
-            Debug.Log("[RoomManager] OnClientError: 사용자 요청으로 인한 종료");
-            _userRequestedQuit = false;
-            CleanupAndLoadTitle(showError: false, errorMessage: null);
-            return;
-        }
-        
-        CleanupAndLoadTitle(showError: true, errorMessage: $"네트워크 오류가 발생했습니다.\n({reason})"
-    );
+        if (IsFatalTransportError(error))
+            _pendingError = ToErrorReason(error);
+    }
+
+    public override void OnServerError(NetworkConnectionToClient conn, TransportError error, string reason)
+    {
+        base.OnServerError(conn, error, reason);
+        Debug.LogWarning($"[RoomManager] 서버 전송 오류 {error} ({conn}): {reason}");
+
+        if (conn != null && IsFatalTransportError(error))
+            _lostConnections.Add(conn);
     }
 
     public override void OnStopHost()
@@ -558,11 +678,11 @@ public class RoomManager : NetworkRoomManager
             Debug.Log("[RoomManager] OnStopHost: 사용자 요청으로 호스트 종료 → 에러 팝업 생략");
             _userRequestedQuit = false;
 
-            CleanupAndLoadTitle(showError: false, errorMessage: null);
+            CleanupAndLoadTitle(NetworkErrorReason.None);
             return;
         }
         else
-            CleanupAndLoadTitle(showError: true, errorMessage: "서버와의 연결이 끊어졌습니다.");
+            CleanupAndLoadTitle(NetworkErrorReason.ServerStopped);
     }
     private void ServerAssignCharacters()
     {

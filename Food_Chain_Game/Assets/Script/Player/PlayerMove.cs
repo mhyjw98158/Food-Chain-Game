@@ -65,7 +65,8 @@ public class PlayerMove : NetworkBehaviour
     }
     private void Interaction()
     {
-        if (!UIManager.Instance.CanInteract()) return;
+        // 채팅 입력 중의 키(기본 Space)는 글자 입력이다
+        if (!UIManager.Instance.CanInteract() || ChatInputFocus.IsFocused) return;
 
         if (Input.GetKeyDown(KeySetting.keys[KeyAction.INTERACT]))
         {

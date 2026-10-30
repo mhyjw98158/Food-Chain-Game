@@ -22,7 +22,7 @@ public static class ConfigManager
     }
 
     // 서버 주소(IP)가 들어 있는지. 요청을 보낼 때마다 이 값을 본다
-    public static bool IsValid => !string.IsNullOrWhiteSpace(Config.IP);
+    public static bool IsValid => !string.IsNullOrWhiteSpace(Config.ServerUrl) || !string.IsNullOrWhiteSpace(Config.IP);
 
     // 방 만들기·입장처럼 사용자가 직접 시작하는 요청 전에 부른다.
     // 설정이 비어 있었으면 파일을 다시 읽어서, 게임을 켠 채로 config.json을 고친 경우에도 다시 켜지 않고 쓸 수 있게 한다
@@ -49,9 +49,9 @@ public static class ConfigManager
             var json = File.ReadAllText(ConfigPath);
             Config = JsonConvert.DeserializeObject<NetworkConfig>(json);
 
-            if (string.IsNullOrWhiteSpace(Config.IP))
+            if (!IsValid)
             {
-                Debug.LogError($"[ConfigManager] {ConfigPath}에 IP 값이 비어있습니다. " +
+                Debug.LogError($"[ConfigManager] {ConfigPath}에 ServerUrl과 IP 값이 모두 비어있습니다. " +
                     "방 생성/조회 등 서버 통신 기능이 동작하지 않습니다.");
             }
         }
@@ -68,7 +68,10 @@ public static class ConfigManager
     // 게임(Mirror) 포트. 방장이 이 포트로 방을 열고, 입장자는 Node 서버가 알려 준 방장의 포트로 접속한다
     public static int GamePort => IsValidPort(Config.GamePort) ? Config.GamePort : DefaultGamePort;
 
-    public static string NodeServerUrl => "http://" + Config.IP + ":" + ServerPort;
+    // ServerUrl이 있으면 그 주소를 쓴다(HTTPS 공개 주소). 없으면 IP와 포트로 만든다(같은 망 테스트)
+    public static string NodeServerUrl => !string.IsNullOrWhiteSpace(Config.ServerUrl)
+        ? Config.ServerUrl.Trim().TrimEnd('/')
+        : "http://" + Config.IP + ":" + ServerPort;
 
     // 방장이 방을 열 포트. ParrelSync 클론은 config.json을 원본과 같이 쓰므로,
     // 같은 기기에서 원본과 클론이 각각 방을 열어도 겹치지 않게 클론 번호만큼 뒤 번호를 쓴다(원본 = GamePort, clone_0 = +1 ...)
@@ -117,6 +120,10 @@ public struct NetworkConfig
 {
     [JsonProperty("IP")]
     public string IP { get; set; }
+
+    // Node 서버의 전체 주소(예: https://rooms.example.com). 비어 있으면 IP와 ServerPort를 쓴다
+    [JsonProperty("ServerUrl")]
+    public string ServerUrl { get; set; }
 
     // 없으면 0 → ConfigManager가 기본값(3000 / 7777)을 쓴다
     [JsonProperty("ServerPort")]

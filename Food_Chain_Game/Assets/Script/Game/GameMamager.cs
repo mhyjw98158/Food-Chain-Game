@@ -27,9 +27,11 @@ public class GameMamager : NetworkBehaviour
     [SyncVar] public int currentRound = 0;
     [SyncVar(hook = nameof(OnRoundTimeChanged))] public RoundTime currentTime = RoundTime.None;
     [SyncVar(hook = nameof(OnTimerChanged))] public float timer;
-    [SyncVar] public int predatorCount = 0;
-    [SyncVar] public int deadPredatorCount = 0;
+    // 서버 전용(SyncVar 아님). 보내면 포식자 수가 드러나고, 누가 죽는 순간 값이 늘어 그 사람이 포식자였음을 알 수 있다
+    public int predatorCount = 0;
+    public int deadPredatorCount = 0;
     public bool IsNightPhase => currentTime == RoundTime.Night;
+    public bool IsLastDay => currentRound >= maxRounds;
 
     // 현재 낮/밤이 시작된 뒤 흐른 시간(초). timer는 남은 시간 카운트다운이므로 페이즈 길이에서 뺀다
     public float PhaseElapsedSeconds
@@ -74,6 +76,12 @@ public class GameMamager : NetworkBehaviour
     [Tooltip("결과 화면을 보여준 뒤 로비로 돌아가기까지의 시간(초)")]
     [SerializeField] private float resultDisplaySeconds = 3f;
 
+    [Header("Phase Warning")]
+    [Tooltip("낮/밤이 끝나기 이 시간(초) 전부터 남은 시간 글자('○ 종료까지', 초)가 빨간색이 된다")]
+    [SerializeField] private float phaseEndWarningSeconds = 30f;
+    [Tooltip("밤이 끝나기 이 시간(초) 전에, 이번 밤에 굶어 죽는 플레이어에게 경고를 보낸다. 밤이 이보다 짧으면 밤이 시작될 때 보낸다")]
+    [SerializeField] private float survivalWarningSeconds = 60f;
+
     // 시작 연출이 이미 시작됐는지. 준비가 늦어 RPC를 놓친 클라이언트가 이 값을 보고 직접 재생한다
     [SyncVar] public bool introStarted;
 
@@ -84,9 +92,11 @@ public class GameMamager : NetworkBehaviour
     private bool _gameEnded;
     // 서버: 밤 체크처럼 여러 명이 연달아 죽는 구간에서는 종료 판정을 미뤘다가 마지막에 한 번만 한다
     private bool _deferEndCheck;
+    // 지금 라운드 표시가 '곧 낮/밤이 바뀜' 상태로 그려져 있는지
+    private bool _isPhaseEnding;
 
     public float dayRoundTime = 20f;
-    private float nightRoundTime = 20f;    
+    [SerializeField] private float nightRoundTime = 20f;    
 
     public static Dictionary<AnimalType, int> MaxHungryRounds = new()
     {
@@ -109,7 +119,23 @@ public class GameMamager : NetworkBehaviour
         }
 
         if (isRoundActive)
+        {
             timerText.text = $"{Mathf.CeilToInt(timer)}초";
+            UpdatePhaseEndWarning();
+        }
+    }
+
+    // 낮/밤이 곧 바뀌는 구간에 들어가거나 나올 때만 라운드 표시를 다시 그린다
+    private void UpdatePhaseEndWarning()
+    {
+        bool isPhaseEnding = timer <= phaseEndWarningSeconds;
+        if (isPhaseEnding == _isPhaseEnding) return;
+
+        _isPhaseEnding = isPhaseEnding;
+        if (GamePlayUI.Instance == null) return;
+
+        timerText.color = GamePlayUI.Instance.GetTimerColor(isPhaseEnding);
+        GamePlayUI.Instance.UpdateRoundText(currentRound, currentTime, IsLastDay, isPhaseEnding);
     }
     public override void OnStartClient()
     {
@@ -328,7 +354,11 @@ public class GameMamager : NetworkBehaviour
             timer = nightRoundTime;
             RpcBlockMap();
             RpcOnDayNightChanged(IsNightPhase);
-            yield return new WaitForSeconds(nightRoundTime);
+
+            float warningDelay = Mathf.Max(0f, nightRoundTime - survivalWarningSeconds);
+            if (warningDelay > 0f) yield return new WaitForSeconds(warningDelay);
+            ServerSendSurvivalWarnings(day, nightRoundTime - warningDelay);
+            yield return new WaitForSeconds(nightRoundTime - warningDelay);
 
             // 체크
             _deferEndCheck = true;
@@ -359,6 +389,40 @@ public class GameMamager : NetworkBehaviour
         }        
     }
 
+    // 이번 밤에 먹지 못한 채 끝나면 굶어 죽는 포식자인지(굶주림을 버티는 라운드 수는 동물마다 다르다)
+    [Server]
+    bool WillStarveTonight(GamePlayer predator)
+    {
+        return !predator.hasEate && predator.hungryStreak + 1 >= MaxHungryRounds[predator.animalType];
+    }
+
+    // 이 날까지 필요한 미션 수를 채우지 못한 피식자인지
+    [Server]
+    bool LacksFoodTonight(GamePlayer prey, int day)
+    {
+        int count = 0;
+        foreach (var misson in prey.Missions)
+            if (misson.Status == MissionStatus.Completed) count++;
+
+        return count < day;
+    }
+
+    // 지금 상태로 밤이 끝나면 죽는 플레이어에게만 경고를 보낸다. 판정은 밤 종료 체크와 같은 조건이다
+    [Server]
+    void ServerSendSurvivalWarnings(int day, float remainingSeconds)
+    {
+        int minutes = Mathf.Max(1, Mathf.CeilToInt(remainingSeconds / 60f));
+
+        foreach (var player in players)
+        {
+            if (player == null || !player.isAlive || player.connectionToClient == null) continue;
+
+            bool willDie = player.isPredator ? WillStarveTonight(player) : LacksFoodTonight(player, day);
+            if (willDie)
+                player.TargetShowSurvivalWarning(minutes);
+        }
+    }
+
     [Server]
     void CheckPredatorSurvival()
     {
@@ -370,10 +434,10 @@ public class GameMamager : NetworkBehaviour
             {
                 if (!player.hasEate)
                 {
+                    bool starved = WillStarveTonight(player);
                     player.hungryStreak++;
 
-                    int maxStreak = MaxHungryRounds[player.animalType];
-                    if (player.hungryStreak >= maxStreak)
+                    if (starved)
                     {
                         Debug.Log($"{player.characterName}는 {player.hungryStreak}라운드 동안 굶어 사망했습니다.");
                         player.Die(new DeathInfo
@@ -402,11 +466,7 @@ public class GameMamager : NetworkBehaviour
             if (player == null || !player.isAlive) continue;
             if (player.isPredator) continue;
 
-            int count = 0;
-            foreach(var misson in player.Missions)
-                if(misson.Status == MissionStatus.Completed) count++;
-
-            if(count < day)
+            if (LacksFoodTonight(player, day))
             {
                 player.Die(new DeathInfo
                 {
@@ -445,7 +505,7 @@ public class GameMamager : NetworkBehaviour
     void OnRoundTimeChanged(RoundTime oldVal, RoundTime newVal)
     {
         RoundTimeChanged?.Invoke(newVal);
-        GamePlayUI.Instance.UpdateRoundText(currentRound, newVal);
+        GamePlayUI.Instance.UpdateRoundText(currentRound, newVal, IsLastDay, _isPhaseEnding);
     }
     void OnTimerChanged(float oldVal, float newVal)
     {
@@ -532,7 +592,7 @@ public class GameMamager : NetworkBehaviour
     // 게임 진행 중에 나가면 사망으로 처리한다(시체 생성, 사망 원인 = 퇴장 — 임시 구현).
     // 그 뒤 플레이어 목록에서 빼서 이후의 굶주림/미션/승패 판정에서 제외한다(오브젝트가 곧 파괴되므로)
     [Server]
-    public void ServerHandlePlayerLeft(GamePlayer leaver)
+    public void ServerHandlePlayerLeft(GamePlayer leaver, bool lostConnection)
     {
         if (leaver == null) return;
 
@@ -562,7 +622,7 @@ public class GameMamager : NetworkBehaviour
         foreach (var p in players)
         {
             if (p != null)
-                p.TargetReceiveMessage(0, "System", $"{leaverNickname}님이 게임에서 나갔습니다.");
+                p.TargetReceiveMessage(0, "System", lostConnection ? $"{leaverNickname}님의 연결이 끊어졌습니다." : $"{leaverNickname}님이 게임에서 나갔습니다.");
         }
 
         ServerTryEndGame();

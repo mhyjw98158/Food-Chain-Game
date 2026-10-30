@@ -260,6 +260,15 @@ public class GamePlayer : NetworkBehaviour
         return _knownDeadNetIds.Contains(player.netId);
     }
 
+    // 내 화면에서 이 플레이어에게 귓속말을 보낼 수 있는지. 산 사람에게는 상대가 죽었다는 사실이 드러나지 않도록
+    // 실제 생사가 아니라 내가 알고 있는 사망만 본다. 그 외의 경우는 서버가 처리한다(CmdSendWhisper)
+    public bool CanWhisperTo(GamePlayer target)
+    {
+        if (target == null || target == this) return false;
+
+        return isAlive ? !IsKnownDeadToLocal(target) : !target.isAlive;
+    }
+
     // 지금 내 시야 안에 있는지(머리 위 닉네임이 보이는 상태와 같다)
     public bool IsInLocalVision
     {
@@ -414,13 +423,16 @@ public class GamePlayer : NetworkBehaviour
         var target = identity.GetComponent<GamePlayer>();
         if (target == null) return;
 
-        // 산 사람과 유령 사이에는 귓속말이 오가지 않는다(유령은 유령끼리만 소통)
-        if (isAlive != target.isAlive) return;
+        // 유령은 산 사람에게 말을 전할 수 없다
+        if (!isAlive && target.isAlive) return;
 
         // 인자: (귓속말 탭의 상대, 말한 사람). 보낸 쪽 탭의 상대는 받는 사람, 받는 쪽 탭의 상대는 보낸 사람이다.
         // 말한 사람은 양쪽 모두 나(보낸 사람)여야 한다(예전에는 받는 쪽에 받는 사람 자신의 이름이 표시됐다)
         TargetReceiveWhisper(target.netId, netId, message);
-        target.TargetReceiveWhisper(netId, netId, message);
+
+        // 산 사람이 죽은 사람에게 보낸 글은 상대에게 전하지 않는다. 보낸 사람 화면에는 평소처럼 보여 상대의 사망을 드러내지 않는다
+        if (isAlive == target.isAlive)
+            target.TargetReceiveWhisper(netId, netId, message);
     }
 
     // 승리 예측(올빼미). 역할은 서버와 본인만 알므로 본인 UI와 서버 판정에만 쓴다
@@ -562,12 +574,16 @@ public class GamePlayer : NetworkBehaviour
         GamePlayUI.Instance.OnCorpseScanCanceled();
     }
 
+    // 이미 조사한 시체는 조사 목록에서 다시 볼 수 있으므로 재조사하지 않는다
+    public bool HasScannedCorpse(Corpse corpse)
+    {
+        return InvestigationLog.Instance != null && InvestigationLog.Instance.TryGet($"{corpse.netId}", out _);
+    }
+
     public void TryScanCorpse(Corpse corpse)
     {
         if (corpse == null || !isAlive || !IsHelper()) return;
-
-        // 이미 조사한 시체는 조사 목록에서 다시 볼 수 있으므로 재조사하지 않는다
-        if (InvestigationLog.Instance != null && InvestigationLog.Instance.TryGet($"{corpse.netId}", out _)) return;
+        if (HasScannedCorpse(corpse)) return;
 
         CmdScanCorpse(corpse.netId);
     }
@@ -720,12 +736,21 @@ public class GamePlayer : NetworkBehaviour
         if (slot != null) slot.MarkPrediction(predictedId);
     }
     
+    // 이대로 밤이 끝나면 굶어 죽는다는 경고. 서버가 판정해 본인에게만 보낸다
+    [TargetRpc]
+    public void TargetShowSurvivalWarning(int minutes)
+    {
+        if (GamePlayUI.Instance != null)
+            GamePlayUI.Instance.ShowSurvivalWarning(isPredator, minutes);
+    }
+
     [Command]
     public void CmdAttack(uint targetNetId)
     {
         if (!isAlive || hasAttacked) return;
         if (!isPredator) return;
-        if (GameMamager.Instance == null || !GameMamager.Instance.isRoundActive) return;
+        // 공격은 밤에만 할 수 있다
+        if (GameMamager.Instance == null || !GameMamager.Instance.IsNightPhase) return;
         if (targetNetId == 0 || targetNetId == netId) return;
 
         if (!NetworkServer.spawned.TryGetValue(targetNetId, out var identity) || identity == null) return;

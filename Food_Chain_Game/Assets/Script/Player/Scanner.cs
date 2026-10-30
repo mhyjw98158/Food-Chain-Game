@@ -40,6 +40,18 @@ public class Scanner : MonoBehaviour
     public float updateInterval = 0.1f;
     private float timer = 0f;
 
+    [Header("Interact Prompt")]
+    [Tooltip("키 안내(\"[키] ○○ 시작\")에 표시할 행동 이름")]
+    [SerializeField] private string attackActionName = "사냥";
+    [SerializeField] private string missionActionName = "미션";
+    [SerializeField] private string corpseActionName = "부검";
+    [SerializeField] private string investigationActionName = "탐색";
+    [SerializeField] private string disguiseActionName = "위장";
+    [SerializeField] private string predictActionName = "예측";
+
+    // 지금 테두리를 켜 둔 대상
+    private Component _hintTarget;
+
     private void Update()
     {
         if (myPlayer == null || !myPlayer.isLocalPlayer) return;       
@@ -124,7 +136,7 @@ public class Scanner : MonoBehaviour
             }
             if (hit.TryGetComponent(out Corpse targetCorpse))
             {
-                if (myPlayer.isAlive && myPlayer.IsHelper())
+                if (myPlayer.isAlive && myPlayer.IsHelper() && !myPlayer.HasScannedCorpse(targetCorpse))
                 {
                     corpsesInRange.Add(targetCorpse);
 
@@ -221,7 +233,7 @@ public class Scanner : MonoBehaviour
     {
         if (!myPlayer.isAlive || !myPlayer.isPredator || myPlayer.hasAttacked) return false;
 
-        return GameMamager.Instance != null && GameMamager.Instance.isRoundActive;
+        return GameMamager.Instance != null && GameMamager.Instance.IsNightPhase;
     }
     private bool CanInteractMission(MissionObject obj)
     {
@@ -235,7 +247,7 @@ public class Scanner : MonoBehaviour
         if (prevTarget != null && prevTarget != currentTarget)
             prevTarget.SetKillUI(false);
 
-        if(target == null) return;
+        UpdateInteractHint();
 
         if(target is GamePlayer gp)
         {
@@ -245,17 +257,42 @@ public class Scanner : MonoBehaviour
             }
             prevTarget = currentTarget;
         }
-        else if (target is Corpse corpse)
-        {
-            // TODO: corpse outline ON
-        }
-        else if (target is MissionObject missionObj)
-        {
-            // TODO: missionObj outline ON
-        }
-        else if (target is InvestigationObject invObj)
-        {
+    }
 
+    // 테두리와 키 안내는 상호작용 키가 지금 실행할 대상 하나만 따라간다(PlayerMove.Interaction과 같은 조건)
+    private void UpdateInteractHint()
+    {
+        Component target = CanShowInteractHint() ? currentInteractTarget : null;
+
+        if (target != _hintTarget)
+        {
+            if (_hintTarget != null) InteractOutline.Of(_hintTarget).SetVisible(false);
+            if (target != null) InteractOutline.Of(target).SetVisible(true);
+            _hintTarget = target;
+        }
+
+        if (target != null) InteractPromptUI.Show(GetActionName());
+        else InteractPromptUI.Hide();
+    }
+
+    private bool CanShowInteractHint()
+    {
+        if (UIManager.Instance == null || !UIManager.Instance.CanInteract() || ChatInputFocus.IsFocused) return false;
+
+        return GameMamager.Instance != null && GameMamager.Instance.isRoundActive;
+    }
+
+    private string GetActionName()
+    {
+        switch (currentType)
+        {
+            case ScanTargetType.Player: return attackActionName;
+            case ScanTargetType.Mission: return missionActionName;
+            case ScanTargetType.Corpse: return corpseActionName;
+            case ScanTargetType.Investigation: return investigationActionName;
+            case ScanTargetType.Disguise: return disguiseActionName;
+            case ScanTargetType.Predict: return predictActionName;
+            default: return string.Empty;
         }
     }
 }

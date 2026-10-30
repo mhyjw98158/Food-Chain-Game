@@ -177,8 +177,8 @@ public class ChatManager : NetworkBehaviour
                     return;
                 }
 
-                // 서버도 막지만(CmdSendWhisper), 보낸 글이 말없이 사라지지 않도록 여기서 먼저 알려 준다
-                if (currentChannel.targetPlayer.isAlive != gamePlayer.isAlive)
+                // 보낸 글이 말없이 사라지지 않도록 여기서 먼저 알려 준다(내가 아는 사망만 본다. 그 외에는 서버가 처리)
+                if (!gamePlayer.CanWhisperTo(currentChannel.targetPlayer))
                 {
                     AppendMessage(currentChannel, $"<color=#888888>{Sanitize(whisperAliveDeadNotice)}</color>");
                     return;

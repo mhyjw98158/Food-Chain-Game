@@ -5,10 +5,6 @@ using UnityEngine;
 public class MissionObject : MonoBehaviour
 {
     [SerializeField] private MissionType missionType;
-    [SerializeField] private SpriteRenderer[] renderers;
-
-    [SerializeField] private Collider2D triggerCollider;
-
     [Tooltip("서버가 미션 시작/완료를 허용하는 최대 거리. 자식 트리거(상호작용 영역)를 덮도록 넉넉하게 설정")]
     [SerializeField] private float interactRange = 4f;
 
@@ -16,8 +12,6 @@ public class MissionObject : MonoBehaviour
     [SerializeField] private float minDurationSeconds = 2f;
     public float MinDurationSeconds => minDurationSeconds;
 
-    private Color[] _defaultColors;
-    private GamePlayer _localPlayerInRange;
     private Collider2D _bodyCollider;
 
     public MissionType MissionType => missionType;
@@ -34,13 +28,6 @@ public class MissionObject : MonoBehaviour
     private void Awake()
     {
         _bodyCollider = GetComponent<Collider2D>();
-
-        if (renderers == null || renderers.Length == 0)
-            renderers = GetComponentsInChildren<SpriteRenderer>();
-
-        _defaultColors = new Color[renderers.Length];
-        for (int i = 0; i < renderers.Length; i++)
-            _defaultColors[i] = renderers[i] != null ? renderers[i].color : Color.white;
 
         SetEnabled(false);
         StartCoroutine(RegisterWhenRegistryReady());
@@ -59,39 +46,7 @@ public class MissionObject : MonoBehaviour
     public void SetEnabled(bool enabled)
     {
         this.enabled = enabled;
-
-        if (triggerCollider != null) triggerCollider.enabled = enabled;
-
-        if (!enabled) SetHighlight(false);
     }
 
     // 미션은 상호작용 키로만 시작한다(PlayerMove → Scanner.CurrentMission). 오브젝트 클릭으로는 시작하지 않는다
-
-    public void OnPlayerEnter(GamePlayer player)
-    {
-        if (!player.isLocalPlayer) return;
-
-        _localPlayerInRange = player;
-        SetHighlight(player.CanStartMissionType(missionType));
-    }
-
-    public void OnPlayerExit(GamePlayer player)
-    {
-        if (!player.isLocalPlayer) return;
-
-        if (_localPlayerInRange == player)
-        {
-            _localPlayerInRange = null;
-            SetHighlight(false);
-        }
-    }
-
-    private void SetHighlight(bool on)
-    {
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            if (renderers[i] == null) continue;
-            renderers[i].color = on ? Color.green : _defaultColors[i];
-        }
-    }
 }

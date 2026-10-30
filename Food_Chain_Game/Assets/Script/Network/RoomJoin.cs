@@ -92,7 +92,7 @@ public class RoomJoin : MonoBehaviour
             }
             else if (request.responseCode == 0) // 서버에 닿지 못함(연결 실패, 시간 초과)
             {
-                error = "서버와 연결할 수 없습니다.";
+                error = NetworkErrorMessages.ServerUnreachable();
             }
             else
             {

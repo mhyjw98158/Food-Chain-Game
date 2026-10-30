@@ -77,14 +77,14 @@ public class NetworkCoordinator : MonoBehaviour
         yield return EnsurePreviousSessionStopped();
         // Node 서버에 등록한 포트(RoomHost)와 같은 포트로 연다
         ConfigManager.TrySetTransportPort(ConfigManager.HostGamePort);
-        yield return StartWithRetry(() => RoomManager.singleton.StartHost(), "StartHost");
+        yield return StartWithRetry(() => RoomManager.singleton.StartHost(), "StartHost", NetworkErrorReason.HostStartFailed);
     }
 
     private IEnumerator StartClientNextFrame()
     {
         yield return null;
         yield return EnsurePreviousSessionStopped();
-        yield return StartWithRetry(() => RoomManager.singleton.StartClient(), "StartClient");
+        yield return StartWithRetry(() => RoomManager.singleton.StartClient(), "StartClient", NetworkErrorReason.ClientStartFailed);
     }
 
     // 이전 세션(같은 프로세스 안에서 정상적으로 종료되지 않은 호스트/클라이언트)이
@@ -111,7 +111,7 @@ public class NetworkCoordinator : MonoBehaviour
     // 실제로는 아직 해제되지 않아 바인드가 실패하는 경우가 있음(특히 Windows에서
     // 직전 세션 종료 직후). Mirror의 상태 플래그로는 이 케이스를 막을 수 없어서,
     // 짧은 지연을 두고 몇 차례 재시도한다.
-    private IEnumerator StartWithRetry(System.Action startAction, string label)
+    private IEnumerator StartWithRetry(System.Action startAction, string label, NetworkErrorReason failReason)
     {
         for (int attempt = 1; attempt <= MaxStartAttempts; attempt++)
         {
@@ -132,10 +132,15 @@ public class NetworkCoordinator : MonoBehaviour
             yield return new WaitForSeconds(StartRetryDelaySeconds);
         }
 
-        string message = $"네트워크 연결에 실패했습니다. 잠시 후 다시 시도해주세요. ({label})";
         Debug.LogError($"[Coordinator] {label}()가 {MaxStartAttempts}회 반복 실패했습니다.");
-        NetworkErrorManager.Instance?.SetError(NetworkErrorReason.Unknown, message);
 
+        if (RoomManager.singleton is RoomManager roomManager)
+        {
+            roomManager.AbortSessionStart(failReason);
+            yield break;
+        }
+
+        NetworkErrorManager.Instance?.SetError(failReason, false);
         if (SceneManager.GetActiveScene().name != "Title")
             SceneManager.LoadScene("Title");
     }

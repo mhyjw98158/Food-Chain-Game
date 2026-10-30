@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
+const net = require("net");
 const path = require("path");
 const sqlite3 = require("sqlite3").verbose();
 const app = express();
@@ -14,6 +15,8 @@ function intEnv(name, fallback) {
 }
 
 const PORT = intEnv("PORT", 3000);
+// 터널이나 리버스 프록시 뒤에서는 127.0.0.1로 열어 외부에서 직접 접속하지 못하게 한다
+const HOST = process.env.HOST || "0.0.0.0";
 const DB_PATH = process.env.ROOM_DB_PATH || path.join(__dirname, "rooms.db");
 // 이 시간(초) 동안 하트비트/출입 보고가 없는 방은 죽은 방으로 보고 지운다.
 // 클라이언트(RoomHost)의 하트비트 간격보다 충분히 길어야 한다
@@ -42,6 +45,10 @@ if (process.env.TRUST_PROXY) {
     const trustProxy = process.env.TRUST_PROXY;
     app.set("trust proxy", /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 }
+
+// Cloudflare Tunnel 뒤에서 실행할 때 1로 설정한다. 모든 요청이 터널(127.0.0.1)에서 오므로 실제 접속 주소를 헤더에서 읽는다.
+// 이 헤더는 위조할 수 있으니 반드시 HOST=127.0.0.1과 함께 쓴다
+const TRUST_CF_CONNECTING_IP = process.env.TRUST_CF_CONNECTING_IP === "1";
 
 const CODE_PATTERN = /^[A-Z0-9]{10}$/;
 const TOKEN_PATTERN = /^[0-9a-f]{48}$/;
@@ -81,6 +88,15 @@ function normalizeIp(ip) {
     return ip.startsWith("::ffff:") ? ip.slice("::ffff:".length) : ip;
 }
 
+// 요청을 보낸 쪽의 실제 주소. 방장 주소 저장과 요청 횟수 제한에 쓴다
+function clientIp(req) {
+    if (TRUST_CF_CONNECTING_IP) {
+        const forwarded = req.get("CF-Connecting-IP");
+        if (typeof forwarded === "string" && net.isIP(forwarded.trim())) return normalizeIp(forwarded.trim());
+    }
+    return normalizeIp(req.ip);
+}
+
 function isValidPort(port) {
     return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
@@ -112,7 +128,7 @@ function rateLimit(label, limit) {
     }, windowMs).unref();
 
     return (req, res, next) => {
-        const key = normalizeIp(req.ip) || "unknown";
+        const key = clientIp(req) || "unknown";
         const now = Date.now();
 
         let entry = hits.get(key);
@@ -254,7 +270,7 @@ app.post("/register", limitRegister, async (req, res) => {
     console.log(`\n[POST /register] code: ${logCode(code)}, maxPlayer: ${maxPlayer}, port: ${port}`);
 
     // 호스트 주소는 요청 본문이 아니라 실제 접속 주소를 쓴다
-    const hostIp = normalizeIp(req.ip);
+    const hostIp = clientIp(req);
     if (!hostIp) {
         return res.status(400).send("요청자 주소를 확인할 수 없습니다");
     }
@@ -487,7 +503,11 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 
     setInterval(cleanupExpiredRooms, CLEANUP_INTERVAL_SECONDS * 1000);
 
-    server = app.listen(PORT, "0.0.0.0", () => {
-        console.log(`\nRoom Code 서버 실행 중 (포트 ${PORT}, 외부 접속 허용)`);
+    if (TRUST_CF_CONNECTING_IP && HOST !== "127.0.0.1") {
+        console.warn("⚠️ TRUST_CF_CONNECTING_IP를 켰는데 HOST가 127.0.0.1이 아닙니다. 직접 접속한 쪽이 주소를 위조할 수 있습니다");
+    }
+
+    server = app.listen(PORT, HOST, () => {
+        console.log(`\nRoom Code 서버 실행 중 (${HOST}:${PORT})`);
     });
 })();

@@ -1121,3 +1121,125 @@ Unity MCP 연결 상태에서 진행(컴파일·씬 확인·플레이 모드 확
 - 원인: `GamePlay.unity`의 `Canvas/Chat UI` 배경 Image의 Raycast Target이 꺼져 있어 `UIDraggable`이 드래그 입력을 받지 못했다(로비 `UI Canvas/Chat UI`는 켜져 있음). 그 위 캔버스(ICanvas 10, Mission Canvas 100)에 채팅창을 덮는 큰 클릭 영역은 없음
 - 수정: **[GamePlay.unity]** `Chat UI` Image Raycast Target 켬. 코드 변경 없음
 - 확인: 저장 후 콘솔 에러·경고 없음. 테스트: review-tests-2.md CHATSET에 항목 추가
+
+## [2026-10-30] 밤에만 공격, 라운드 표시 빨간색, 굶주림 경고
+
+사용자 요청: 공격은 밤에만. 밤낮이 바뀌기 30초 전에는 "○일차"를 뺀 표시를 전부 빨간색으로, 마지막 날에는 "4일차"를 빨간색으로. 이번 밤에 사냥/미션을 못 해 죽게 되는 플레이어에게 밤 종료 1분 전 우측 상단 경고(2초 후 서서히 사라짐). 지금 라운드 시간이 짧아 어색한 것은 나중에 조정.
+- **[GamePlayer.cs]** `CmdAttack`: 서버에서 `IsNightPhase`일 때만 처리. `TargetShowSurvivalWarning(minutes)` 추가(서버가 본인에게만 보냄)
+- **[Scanner.cs]** `CanAttackNow`: 밤에만 true(낮에는 Kill UI·대상 지정 없음)
+- **[GameMamager.cs]** `phaseEndWarningSeconds`(30), `survivalWarningSeconds`(60) 추가. `nightRoundTime`을 `[SerializeField]`로(인스펙터 조정용). `Update`에서 빨간 구간 진입·이탈 때만 표시를 다시 그림. `RoundFlow`의 밤 대기를 경고 전·후로 나눔(밤이 경고 시간보다 짧으면 밤 시작 때 전송). 사망 판정을 `WillStarveTonight`·`LacksFoodTonight`로 뽑아 밤 종료 체크와 경고가 같은 조건을 쓰게 함
+- **[GamePlayUI.cs]** `UpdateRoundText`에 `isLastDay`·`isPhaseEnding` 인자 추가(리치 텍스트로 일부만 색칠, 안내 글자는 색 변경). `GetTimerColor`, `ShowSurvivalWarning`, `CoSurvivalWarning` 추가. 색·문구·유지/페이드 시간은 인스펙터 값
+- **[GamePlay.unity]** `ICanvas/GameText UI/Survival Warning Text` 추가(꺼진 상태, Scan 버튼 아래, 빨강 32, 클릭 안 받음), `GamePlayUI.survivalWarningText` 연결
+- 결정: 하이에나·악어·매는 굶주림을 몇 라운드 버티므로 **이번 밤에 실제로 죽는 경우에만** 경고한다. 공격 기회를 써서 실패한 포식자도 그대로 죽으므로 경고가 뜬다
+- 확인: 컴파일·콘솔 에러 0, 경고 문구 글자 폰트에 있음, 플레이 모드에서 UI 메서드를 직접 호출해 색 조합·페이드 후 꺼짐 확인(스크린샷으로 Scan 버튼과 겹침을 찾아 아래로 옮김, 옮긴 뒤 화면은 다시 찍지 않고 좌표로 확인). 네트워크 플레이로는 확인 못 함. 테스트: review-tests-2.md NIGHT
+
+## [2026-10-30] 굶주림 경고 위치 변경, 로비 플레이어 목록·추방
+
+사용자 요청(원문: `Docs/prompt/lobby-player-list.md`): 사망 경고를 중앙 상단 살짝 아래에 큰 글자로. 로비 우측 상단 버튼으로 플레이어 목록(닉네임, 캐릭터, 음량, 음소거, 추방). 추방된 플레이어는 초대코드로도 다시 못 들어오고, 시도하면 거절 후 메시지 UI로 안내.
+- **[GamePlay.unity]** `Survival Warning Text`를 `GameText UI`에서 `Mission Canvas`로 옮김(미션 창에 가리지 않게). 위쪽 가운데 y -110, 64 굵게
+- **[GamePlayUI.cs]** `HideSurvivalWarning` 추가. 게임 종료 때 끈다(`GameText UI`와 함께 꺼지지 않게 되었으므로)
+- **[ClientIdentity.cs 새 파일]** 기기 ID(`deviceUniqueIdentifier` 해시). 에디터에서는 프로젝트 경로를 섞어 ParrelSync 클론끼리 구분
+- **[RoomManager.cs]** `ClientIdentityMessage`(접속 직후, 플레이어 생성 요청보다 먼저 전송), `_clientIds`·`_bannedClientIds`, `ServerKickPlayer`. 사유 `Kicked`·`Banned` 추가, 기존 입장 거부 경로(`ServerRejectConnection` → 클라이언트가 스스로 나감 → 타이틀 메시지 창)를 그대로 씀. 거부·추방된 연결은 퇴장 안내 생략. 추방 목록은 새 방을 열 때(`OnStartServer`) 비움
+- **[RoomPlayer.cs]** `CmdKickPlayer`: 서버에서 방장 여부·대상 검증. 게임 시작 중이거나 로비가 아니면 무시
+- **[LobbyPlayerListUI.cs / LobbyPlayerRow.cs 새 파일]** 목록 창과 한 줄. 음량·음소거·닉네임은 기존 `LobbyVoiceParticipantRow` 재사용
+- **[Lobby Player Row.prefab 새 파일]** `Voice Row`에서 만듦. 쓰지 않던 `Toggle - Mute` 제거, 캐릭터 그림·추방 버튼 추가
+- **[GameRoom.unity]** `Player List Btn`(우측 상단), `Player List UI`(창, 스크롤) 추가
+- 결정: "캐릭터"는 외형(색 + 의상)으로 표시. 로비에서는 직업이 배정 전이고 역할 은닉 대상이다. Node 서버는 고치지 않음(재입장 차단은 방장의 Mirror 서버가 판정)
+- 한계: 기기 ID는 클라이언트가 보내는 값이라 변조된 클라이언트는 우회할 수 있다. 빌드는 PC가 같으면 같은 ID
+- 확인: 컴파일 에러 0, 문구 글자 폰트에 있음, 플레이 모드에서 목록 창 레이아웃·열기/닫기·이동 잠금, 경고 위치 스크린샷 확인. 2인 네트워크(추방, 재입장 거부)는 실행 못 함(연결된 에디터 1개). 테스트: review-tests-2.md KICK, NIGHT
+
+## [2026-10-30] 추방 확인창, 라운드 표시 색 변경
+
+사용자 요청: 추방 전에 "??를 추방하시겠습니까?" 확인. 게임 우측 상단 낮/밤 글자는 밤에만 빨간색.
+- **[ReturnToTitleConfirmUI.cs]** `TryShow(string, Action)` 추가. 나가기 확인창을 문구만 바꿔 재사용(씬 변경 없음, ESC 취소도 기존 처리 그대로)
+- **[LobbyPlayerRow.cs]** 추방 버튼은 확인창을 띄우고, 확인해야 `CmdKickPlayer`를 보낸다. 문구는 `kickConfirmFormat`(인스펙터). 닉네임 받침에 따라 을/를이 달라져 "○님을"로 함
+- **[GamePlayUI.cs]** `UpdateRoundText`: 라운드 표시의 "밤"은 밤 내내 빨간색, "낮"은 항상 흰색. 30초 전 빨간색은 안내 글자·남은 시간에만 적용. 마지막 날 "○일차" 빨간색은 그대로
+- 확인: 컴파일·콘솔 에러 0. 플레이 모드에서 확인창 호출(목록 창 위 표시, 취소 시 목록 유지, 나가기 문구 유지)과 낮/밤·마지막 날·30초 전 색 조합 6가지 확인. 추방 버튼에서 실제 추방까지는 2인 네트워크가 필요해 실행 못 함. 테스트: review-tests-2.md NIGHT, KICK
+
+## [2026-10-30] 상호작용 표시 통일(테두리 빛 + 키 안내)
+
+사용자 요청: 초록색으로 칠하는 대신 테두리가 빛나는 표현으로 통일하고, 상호작용 키를 "[?] ??(행동) 시작"으로 보여 준다(`game-completion.md` 항목).
+- **[InteractOutline.cs 새 파일]** 스프라이트 복사본을 8방향 2겹으로 뒤에 깔아 윤곽을 따라 빛나게 한다. 처음 표시할 때 대상에 붙고, 보이는 동안 그림·정렬 순서를 원본에 맞춘다. 대상의 몸 그림(루트 SpriteRenderer)만 쓰므로 의상 덮는 그림과 자식 그림은 테두리에 포함되지 않는다
+- **[InteractOutlineSettings.cs / Resources/InteractOutlineSettings.asset 새 파일]** 색·두께·맥동을 한곳에서 조정. 기본색은 밝은 노랑(들판 바닥이 연두색이라 초록은 대비가 약함, 미니맵 미션 마커와 같은 계열)
+- **[Sprite/Shader/InteractOutline.shader·.mat 새 파일]** 스프라이트 알파만 쓰고 색은 SpriteRenderer.color로 칠하는 무조명 셰이더(밤에도 같은 밝기)
+- **[InteractPromptUI.cs 새 파일]** 화면 아래 키 안내. 키 이름은 `KeySetting.GetKey(INTERACT)`, 표기는 기존 `ToUserFriendlyString`(Space는 "SpaceBar")
+- **[Scanner.cs]** `TODO: outline` 제거. `UpdateInteractHint`: 테두리·안내는 `currentInteractTarget` 하나만 따라간다. 창이 열렸거나 채팅 중이거나 라운드가 아니면 숨김. 행동 이름은 인스펙터 값. 이미 부검한 시체는 대상에서 제외
+- **[MissionObject.cs / InvestigationObject.cs]** 초록 색칠, 트리거 입출입 처리, `renderers`·`triggerCollider`·`SetEnabled`(탐색) 제거
+- **[MissionTrigger.cs / InvestigationTrigger.cs 삭제]**, **[GamePlay.unity]** 트리거 전용 자식 `Range` 19개 삭제. 탐색 오브젝트는 트리거가 꺼진 채라 전에는 표시가 나온 적이 없었다
+- **[CustomizeObject.cs]** 초록 색칠 제거, 같은 테두리·안내 사용
+- **[PlayerMove.cs]** 버그 수정: 채팅 입력 중에 상호작용 키가 동작했다(기본 Space라 띄어쓰기로 미션 시작 가능)
+- **[GamePlayer.cs]** `HasScannedCorpse` 추출
+- **[GamePlay.unity / GameRoom.unity]** `Interact Prompt UI` 추가(마이크 표시 위 y 110)
+- 플레이어(사냥 대상)의 기존 Kill UI는 그대로 두고 테두리·안내를 더했다
+- **[GameRoom.unity]** `Customize Object` 정렬 1 → 2. 테두리는 원본보다 1 낮게 그려져, 바닥(0)과 순서가 같으면 바닥에 묻힌다
+- 확인: 컴파일·콘솔 에러 0, 셰이더 에러 없음, 문구 글자 폰트에 있음. 플레이 모드에서 게임 씬 오브젝트와 로비 오브젝트에 직접 켜서 테두리·키 안내 화면 확인(스크린샷으로 바닥에 묻히는 문제와 들판에서 초록 대비가 약한 문제를 찾아 고침). Scanner를 거친 실제 접근·키 입력, 밤 조명, 시야 마스크, 사냥·부검은 실행 못 함(게임 플레이어 필요). 테스트: review-tests-2.md INTERACT
+
+## [2026-10-30] 오브젝트 테두리를 시야와 상관없이 표시
+
+사용자 요청: 게임 씬에서 미션·탐색 등 오브젝트 테두리가 시야에 노출된 부분만 보임 → 시야와 상관없이 전부 보이게.
+- 확인 결과: 컴파일·콘솔 에러 0, 셰이더 에러 없음. 플레이 모드에서 원본을 투명하게 해 시야에 가려진 상태를 재현, 사각형·원형 그림 모두 안쪽이 뚫린 테두리만 남고 원본이 보일 때는 그대로인 것을 스크린샷으로 확인. 실제 시야(벽 그림자)로 일부만 가려진 상태와 플레이어·시체는 실행 못 함
+- 원인: 복사본이 원본의 `maskInteraction`(VisibleInsideMask)을 그대로 받았다. 시야 마스크는 오브젝트(Entities)에만 적용되고 바닥은 항상 보인다
+- **[InteractOutline.cs]** 고정 오브젝트의 복사본은 마스크 없음. 플레이어·시체는 벽 너머 위치가 드러나지 않게 시야를 따른다. `UpdateCutout`: 복사본마다 원본 자리의 UV를 `MaterialPropertyBlock`으로 넘긴다(그림·뒤집힘이 바뀔 때만 계산)
+- **[InteractOutline.shader]** 원본 자리를 뚫는다. 마스크만 풀면 원본이 가려진 부분이 노란 면으로 채워지기 때문
+- 테스트: review-tests-2.md INTERACT
+
+## [2026-10-30] 끊김·접속 실패 안내 세분화와 예외 처리
+
+사용자 요청: 게임 중 끊겼을 때 메시지를 자세히, 일반적인 게임에 있는 대응 오류 메시지와 예외 처리까지.
+- 문제: 전송 오류가 하나만 나도 바로 타이틀로 보내고 영어 원문을 표시했다. KCP의 `InvalidSend`는 연결이 유지되는 오류라 게임이 불필요하게 끝날 수 있었다. 방장이 튕기면 30초 동안 안내 없이 멈춰 보였다. 접속 실패와 플레이 중 끊김이 같은 문구였다. 호스트 시작 실패 때 Node 서버에 방이 남았다
+- **[NetworkErrorMessages.cs 새 파일]** 사유별 제목·설명·오류 코드. 게임 중 끊기면 재참여 불가 안내를 덧붙인다
+- **[NetworkErrorManager.cs]** `NetworkErrorReason`을 표시 코드 체계로 교체(1xx 접속 실패, 2xx 끊김, 3xx 입장·퇴장, 4xx 시작 실패). `SetError(reason, inGame)`
+- **[RoomManager.cs]** `OnClientError`는 사유만 기록하고 판단은 `OnClientDisconnect` 쪽으로(치명적 오류는 KCP가 반드시 연결을 끊는 것을 소스로 확인). `ConsumeDisconnectReason`: 서버 통보 → 인터넷 끊김 → 전송 오류 → 연결 상태 순. `_clientConnected`로 접속 실패와 끊김 구분. `ClientIdentityMessage`에 게임 버전을 넣어 다르면 거부(`VersionMismatch`). `OnServerError`로 전송 오류로 끊긴 연결을 기록해 남은 플레이어에게 구분 안내. `AbortSessionStart`: 시작 실패 때 Node 서버의 방을 지우고 세션 정리
+- **[NetworkCoordinator.cs]** 시작 실패를 `AbortSessionStart`로 처리
+- **[GameMamager.cs]** `ServerHandlePlayerLeft(leaver, lostConnection)`
+- **[RoomJoin.cs / RoomHost.cs]** Node 서버에 닿지 못했을 때 인터넷 끊김을 구분해 안내
+- **[ConnectionStatusUI.cs 새 파일]** 방장 메시지가 4초 이상 끊기면 경고 배너(방장 본인 제외, 씬 로딩 중 제외). 끊긴 시간은 `NetworkConnection.lastMessageTime` 기준
+- **[Title.unity / GamePlay.unity / GameRoom.unity]** 메시지 창 확대(3단 문구), 두 게임 씬에 `Connection Status UI` 추가
+- 범위 밖: 재접속(복귀) 기능은 없다(`node-server-checklist.md` 접속 구조 항목). 음성(Vivox) 끊김 안내는 다루지 않았다
+- 확인: 컴파일 에러 0. Start 씬부터 실제 실행해 없는 주소 접속 → 103, 서버 없는 포트 접속 → 102, 실패 뒤 재시도 정상을 확인. 이때 Mirror가 `Connect` 다음에 `OnStartClient`를 불러 즉시 나는 오류 기록이 지워지는 버그를 찾아 고쳤다(`_pendingError` 초기화를 세션 정리로 이동). 재시도 때의 핸들러 경고는 `ReplaceHandler`로 해결. 모든 사유의 문구 글자가 폰트에 있고, 가장 긴 문구가 메시지 창에 들어가며, 배너가 사망 경고와 겹치지 않는 것을 확인. 방장 튕김·타임아웃(201)과 배너 실제 동작, 버전 불일치, 호스트 시작 실패, 남은 플레이어 안내는 2인 이상이 필요해 실행 못 함
+- 테스트: review-tests-2.md DISCON
+
+## [2026-10-30] plan 6단계: 이동 서버 검증, Cloudflare Tunnel 대응, Steam 계획
+
+사용자 결정: 접속은 직접 접속 유지 + Steam 출시 대비 문서화 / 호스트 이탈·재접속은 지금 동작 유지 / 이동은 클라이언트 이동 + 서버 검증 / Node 서버는 내 PC + Cloudflare Tunnel.
+- **[ServerMoveValidator.cs 새 파일, GamePlayer.prefab]** 시간에 따라 쌓이는 이동 예산(`speedTolerance` 1.3배, 최대 `maxBurstDistance` 5)을 넘거나 중심점이 벽 안이면 마지막 정상 위치로 되돌린다. 렉으로 위치가 몰려 도착해도 치트로 보지 않기 위해 단순 속도 비교 대신 예산 방식을 썼다. 벽은 정적 강체가 있는 `Occluder`·`MapBoundary`만 본다. 밤 차단막·하늘 차단막은 강체가 없고 켜지는 시점이 클라이언트마다 달라 뺐다. 유령은 맵 경계만 본다. 방장 본인은 제외
+- **[Server/server.js]** `HOST`, `TRUST_CF_CONNECTING_IP` 추가, `clientIp`로 방장 주소 저장과 요청 제한을 실제 주소 기준으로. 터널 뒤에서는 모든 요청이 127.0.0.1로 보여 방장 주소가 터널 도메인으로 잘못 나가고 요청 제한도 전원이 공유하게 되는 문제를 막는다. 헤더 위조 방지를 위해 `HOST=127.0.0.1`과 함께 쓰며, 아니면 시작 때 경고
+- **[Server/ecosystem.config.js, README.md]** `--env tunnel`, 터널 적용 절차
+- **[ConfigManager.cs]** `config.json`의 `ServerUrl`(있으면 IP·포트보다 우선)
+- **[Docs/progress/steam-plan.md 새 파일]** Steam 전환 계획, 바뀌는 코드 위치
+- 음성 토큰은 보류로 결정. 조사 내용(서명 키, SDK의 내부 토큰 경로, 서버 의존)은 `important.md`
+- 확인: 컴파일 에러 0. 임시 포트·임시 DB로 서버를 띄워 헤더를 흉내 내 시험(공인 IP 저장, 잘못된 헤더 무시, 주소별 요청 제한, 기본 모드 기존 동작, 위조 경고) 통과. 플레이 모드의 실제 맵에서 벽 판정을 직접 호출해 확인(생존: 벽 22/22·경계 8/8 차단, 미션 오브젝트 위·빈 바닥 통과 / 유령: 경계 8/8 차단, 벽은 경계와 겹치는 14개만 차단). 실제 터널, 이동 예산·되돌리기, 켜진 상태의 차단막 제외는 2인 플레이나 터널이 필요해 실행 못 함. 테스트: review-tests-2.md MOVE, TUNNEL
+
+## [2026-10-30] 클라이언트로 가는 정보 재점검(역할 추측)
+
+범위: 모든 `[SyncVar]`, SyncList, `[ClientRpc]`, `[TargetRpc]`, `NetworkMessage`, Command 권한, 프리팹·씬의 Sync Mode.
+
+### 치명적
+- [GameMamager.cs] `predatorCount`, `deadPredatorCount`가 전원에게 동기화됐다. 클라이언트는 쓰지 않는 값인데, 포식자 수가 드러나고 **누가 죽는 순간 값이 늘어 그 사람이 포식자였음을 알 수 있었다** → 수정함(SyncVar 제거)
+
+### 경고
+- [ContextMenuUI.cs, ChatManager.cs, GamePlayer.CmdSendWhisper] 생존자의 귓속말 버튼이 꺼지고 안내 문구가 떠서, **변조 없이도** 상대의 사망이 드러났다(규칙: 생존자는 자신이 죽였거나 조사한 사람만 안다) → 수정함. `CanWhisperTo`는 내가 아는 사망만 보고, 서버는 산 사람이 죽은 사람에게 보낸 글을 보낸 사람 화면에만 보여 준다
+- 위치·생사·시체 위치는 변조된 클라이언트가 읽을 수 있다 → 보류, `important.md`에 정리
+
+### 문제없음으로 확인
+- 역할 값(`animalType`, `isPredator`, `characterName`, `homeZone` 등)은 동기화하지 않음. `TargetReceiveRole`은 본인만
+- `PlayerPrivateState`, `ScorpionAbility`, `PreySymbiosisAbility`는 프리팹·코드 모두 Sync Mode Owner. 나머지 능력 컴포넌트에는 SyncVar 없음
+- 시체의 사망 정보는 서버만 보관, 조사한 조력자에게만 전달
+- `requiresAuthority = false`인 Command 없음(남의 오브젝트로 호출 불가)
+- 탐색은 대상의 생사를 보지 않아 사망이 드러나지 않음. 나간 플레이어는 나간 순간 정보로 응답
+- 미션 `InUse` 거부는 같은 미션을 받은 플레이어에게만 뜨고 진행에 필요해 유지
+- 결과 화면의 역할 공개는 게임이 끝난 뒤에만 전송
+
+### 다음 세션에서 볼 것
+- `GamePlay` 씬에 시체 프리팹이 (0, 0)에 켜진 채 놓여 있다. 게임 시작부터 보이고, 조력자가 조사하면 빈 값이 나온다. 의도된 것인지 확인 필요 ★
+- 테스트: review-tests-2.md HIDDEN
+
+## [2026-10-30] 그래픽 설정 점검, 테스트용 시체 삭제
+
+사용자 요청: 게임 씬의 시체 프리팹은 테스트용이니 삭제. 그래픽 설정이 필요한지 점검하고 필요하면 진행.
+- **[GamePlay.unity]** (0, 0)의 시체 프리팹 삭제
+- 점검: 해상도·창 모드는 구현돼 있고 문제없음(크기로 저장, 모니터 변경 대응, 실행 후 한 번만 적용). 수직동기화는 품질 설정에 고정, 프레임 제한은 없었다. 드라이버가 VSync를 끄면 프레임이 제한 없이 올라가고, 방장은 프레임이 곧 서버 갱신 속도라 필요하다고 판단
+- **[ResolutionSetting.cs]** 수직동기화·프레임 제한 추가(`VSyncEnabled`, `FrameRateLimit` 저장, 선택지는 값으로 저장). 기본은 VSync 켜짐, 제한 144. VSync가 켜져 있으면 `targetFrameRate`가 무시되므로 프레임 제한 드롭다운을 비활성화. 방 전체 서버 갱신이 떨어지지 않게 30은 선택지에서 뺌
+- **[Setting UI.prefab]** `VSync Group`, `FrameRate Group` 추가(기존 화면 모드 행 복제). 품질 단계 선택은 넣지 않음: 2D라 효과가 작다
+- 프리팹에 원본 없는 중첩 프리팹 4개가 있어 저장 후 확인: 참조 4개 유지, 사라진 오브젝트 없음(486 → 548, 복제분만 증가)
+- 확인: 컴파일 에러 0. 타이틀 씬 플레이 모드에서 기본값, VSync 끔, 제한 60, 제한 없음, 저장, 다시 켬을 값으로 확인하고 화면 스크린샷 확인, 시험 저장값 삭제. 세 씬 모두 연결 확인. 실제 FPS 측정은 하지 않음(에디터에서는 빌드와 다름). 테스트: review-tests-2.md GFX

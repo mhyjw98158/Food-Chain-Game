@@ -334,6 +334,19 @@ public class RoomPlayer : NetworkRoomPlayer
             GameRoomUI.Instance.CheckHostStatus(this);
     }
 
+    // 방장만 다른 플레이어를 추방할 수 있다
+    [Command]
+    public void CmdKickPlayer(uint targetNetId)
+    {
+        if (!isHost) return;
+        if (!NetworkServer.spawned.TryGetValue(targetNetId, out var identity) || identity == null) return;
+        if (!identity.TryGetComponent(out RoomPlayer target) || target == this) return;
+
+        var roomManager = RoomManager.singleton as RoomManager;
+        if (roomManager != null)
+            roomManager.ServerKickPlayer(target);
+    }
+
     // 방에 있는 모든 플레이어의 채팅창에 안내 문구를 보낸다.
     // (서버에서 ChatManager에 직접 적으면 방장 화면에만 보인다)
     [Server]

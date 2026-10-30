@@ -94,6 +94,22 @@ public class GamePlayUI : MonoBehaviour
     [Tooltip("사망 연출을 보여 주는 동안 조작을 막는 시간(초)")]
     [SerializeField] private float deathEffectSeconds = 2f;
 
+    [Header("Round Text Warning")]
+    [Tooltip("라운드 표시의 평소 색(남은 시간 글자)")]
+    [SerializeField] private Color normalRoundTextColor = Color.white;
+    [Tooltip("라운드 표시의 '밤'과 마지막 날의 '○일차', 낮/밤이 곧 바뀔 때의 남은 시간 글자에 쓰는 색")]
+    [SerializeField] private Color urgentRoundTextColor = Color.red;
+
+    [Header("Survival Warning")]
+    [Tooltip("화면 위쪽 가운데의 큰 경고 글자(이대로 밤이 끝나면 굶어 죽을 때 뜬다). 미션 창에 가리지 않게 Mission Canvas에 둔다")]
+    [SerializeField] private TextMeshProUGUI survivalWarningText;
+    [SerializeField] private string huntWarningFormat = "{0}분 안에 사냥하지 않을시 사망합니다.";
+    [SerializeField] private string foodWarningFormat = "{0}분 내로 식량을 구하지 않을시 사망합니다";
+    [Tooltip("경고를 또렷하게 보여 주는 시간(초)")]
+    [SerializeField] private float survivalWarningHoldSeconds = 2f;
+    [Tooltip("경고가 서서히 사라지는 시간(초)")]
+    [SerializeField] private float survivalWarningFadeSeconds = 1f;
+
     [Header("Zone Panels")]
     public Transform fieldPanel;
     public Transform forestPanel;
@@ -131,6 +147,7 @@ public class GamePlayUI : MonoBehaviour
     private bool isInvestigating;
     private bool isCorpseScanning;
     private Coroutine deathCo;
+    private Coroutine survivalWarningCo;
     // 사망 연출 중 ESC를 막는 키(UIManager 닫기 스택)
     private static readonly object DeathEffectEscapeKey = new();
 
@@ -260,20 +277,76 @@ public class GamePlayUI : MonoBehaviour
         }
     }
 
-    public void UpdateRoundText(int round, RoundTime time)
+    public Color GetTimerColor(bool isPhaseEnding)
+    {
+        return isPhaseEnding ? urgentRoundTextColor : normalRoundTextColor;
+    }
+
+    public void UpdateRoundText(int round, RoundTime time, bool isLastDay, bool isPhaseEnding)
     {
         if (time == RoundTime.End)
         {
             roundText.text = "게임 종료";
             timerDisplay.text = "";
+            HideSurvivalWarning();
         }
         else
         {
-            roundText.text = $"{round}일차 {GetTimeName(time)}";
+            string dayName = $"{round}일차";
+            string timeName = GetTimeName(time);
+            if (isLastDay) dayName = ColorUrgent(dayName);
+            if (time == RoundTime.Night) timeName = ColorUrgent(timeName);
+
+            roundText.text = $"{dayName} {timeName}";
             timerDisplay.text = $"{GetTimeName(time)} 종료까지";
+            timerDisplay.color = GetTimerColor(isPhaseEnding);
         }
             
     }
+    private string ColorUrgent(string text)
+    {
+        return $"<color=#{ColorUtility.ToHtmlStringRGB(urgentRoundTextColor)}>{text}</color>";
+    }
+
+    public void ShowSurvivalWarning(bool isPredator, int minutes)
+    {
+        if (survivalWarningText == null) return;
+
+        survivalWarningText.text = string.Format(isPredator ? huntWarningFormat : foodWarningFormat, minutes);
+
+        if (survivalWarningCo != null) StopCoroutine(survivalWarningCo);
+        survivalWarningCo = StartCoroutine(CoSurvivalWarning());
+    }
+
+    private void HideSurvivalWarning()
+    {
+        if (survivalWarningCo != null) StopCoroutine(survivalWarningCo);
+        survivalWarningCo = null;
+
+        if (survivalWarningText != null)
+            survivalWarningText.gameObject.SetActive(false);
+    }
+
+    private IEnumerator CoSurvivalWarning()
+    {
+        Color color = survivalWarningText.color;
+        color.a = 1f;
+        survivalWarningText.color = color;
+        survivalWarningText.gameObject.SetActive(true);
+
+        yield return new WaitForSeconds(survivalWarningHoldSeconds);
+
+        for (float elapsed = 0f; elapsed < survivalWarningFadeSeconds; elapsed += Time.deltaTime)
+        {
+            color.a = 1f - elapsed / survivalWarningFadeSeconds;
+            survivalWarningText.color = color;
+            yield return null;
+        }
+
+        survivalWarningText.gameObject.SetActive(false);
+        survivalWarningCo = null;
+    }
+
     // 위장 창(위장 오브젝트에서 연다). 이동 잠금(Modal)은 창을 열 때 한 번 걸고, 닫을 때(CloseDisguiseUI) 한 번만 푼다.
     // 위장은 한 번만 할 수 있어서, 이미 위장했다면 목록 대신 위장한 동물을 안내한다
     public void ShowDisguiseUI()

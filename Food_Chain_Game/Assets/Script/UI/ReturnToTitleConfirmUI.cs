@@ -3,6 +3,7 @@ using TMPro;
 using UnityEngine;
 
 // "타이틀 화면으로 돌아가시겠습니까?" 확인창. 방장 여부와 무관하게 방을 나가기 전에 한 번 묻는다.
+// 다른 문구를 넘기면 같은 창으로 다른 확인도 받는다(추방 확인).
 // 씬에 하나만 두고(로비/게임 씬), 나가기 버튼들은 TryShow로 띄운다. 씬에 없으면 TryShow가 false를 돌려준다
 public class ReturnToTitleConfirmUI : MonoBehaviour
 {
@@ -31,17 +32,22 @@ public class ReturnToTitleConfirmUI : MonoBehaviour
     // 확인창을 띄웠으면 true. 확인을 누르면 onConfirm이 실행된다
     public static bool TryShow(Action onConfirm)
     {
+        return Instance != null && TryShow(Instance.message, onConfirm);
+    }
+
+    public static bool TryShow(string confirmMessage, Action onConfirm)
+    {
         if (Instance == null || Instance.window == null) return false;
 
-        Instance.Show(onConfirm);
+        Instance.Show(confirmMessage, onConfirm);
         return true;
     }
 
-    private void Show(Action onConfirm)
+    private void Show(string confirmMessage, Action onConfirm)
     {
         _onConfirm = onConfirm;
 
-        if (messageText != null) messageText.text = message;
+        if (messageText != null) messageText.text = confirmMessage;
         if (IsOpen) return;
 
         window.SetActive(true);

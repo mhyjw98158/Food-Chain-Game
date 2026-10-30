@@ -712,6 +712,7 @@ GameObject:
   - component: {fileID: 5810979613096247485}
   - component: {fileID: 872554505374034046}
   - component: {fileID: 4748407363263812561}
+  - component: {fileID: 3389997006257021780}
   m_Layer: 7
   m_Name: GamePlayer
   m_TagString: Untagged
@@ -954,6 +955,12 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 6272
   updateInterval: 0.1
+  attackActionName: "\uC0AC\uB0E5"
+  missionActionName: "\uBBF8\uC158"
+  corpseActionName: "\uBD80\uAC80"
+  investigationActionName: "\uD0D0\uC0C9"
+  disguiseActionName: "\uC704\uC7A5"
+  predictActionName: "\uC608\uCE21"
 --- !u!50 &5581831758469122627
 Rigidbody2D:
   serializedVersion: 5
@@ -1197,6 +1204,30 @@ MonoBehaviour:
   bodyRenderer: {fileID: 8953892327403946368}
   overlayRenderer: {fileID: 0}
   overlaySortingOffset: 1
+--- !u!114 &3389997006257021780
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6610563625137353674}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ab8a8d18556c1ce49a222b734d56021c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ServerMoveValidator
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  speedTolerance: 1.3
+  maxBurstDistance: 5
+  correctionGraceSeconds: 0.5
+  wallMask:
+    serializedVersion: 2
+    m_Bits: 1032
+  ghostWallMask:
+    serializedVersion: 2
+    m_Bits: 1024
 --- !u!1 &7883089064445467819
 GameObject:
   m_ObjectHideFlags: 0

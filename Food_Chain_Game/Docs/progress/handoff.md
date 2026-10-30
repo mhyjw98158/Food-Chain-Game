@@ -39,6 +39,27 @@
 - 본인 사망 시: 미션 실패·대기 중 미션 요청 취소(GamePlayer) → 탐색·부검 취소 → 창 닫기 → 사망 연출
 - **사망 연출 넣는 법:** 연출 오브젝트(꺼 둔 상태)를 만들어 `GamePlayUI`의 `deathEffectUI`에 연결, 길이는 `deathEffectSeconds`. 켜질 때 재생되도록 만들면 된다. 그동안 이동·ESC가 막힌다
 
+### 상호작용 표시
+- 테두리(`InteractOutline`)와 키 안내(`InteractPromptUI`)는 `Scanner.currentInteractTarget`만 따라간다. 새 상호작용 대상은 Scanner에 추가하면 표시도 함께 된다(행동 이름은 `GetActionName`)
+- 색·두께·맥동은 `Assets/Resources/InteractOutlineSettings.asset`. 복사본은 처음 표시할 때 만들어지므로 플레이 중에 두께를 바꾸면 그 판의 이미 만든 테두리에는 반영되지 않는다
+- 테두리는 대상의 루트 SpriteRenderer 모양을 따른다. 그림을 자식 오브젝트로 넣으면 테두리가 생기지 않는다
+- 테두리는 원본보다 정렬이 1 낮다. 오브젝트 정렬이 바닥보다 2 이상 높아야 바닥에 묻히지 않는다
+- 고정 오브젝트의 테두리는 시야 마스크를 받지 않고, 셰이더가 원본 자리를 뚫어 테두리만 남긴다. 플레이어·시체는 시야를 따른다(`InteractOutline.AddCopy`)
+
+### 이동 검증 (`ServerMoveValidator`)
+- 이동은 클라이언트 권위 그대로이고, 서버가 불가능한 이동만 되돌린다. 시간에 따라 쌓이는 이동 예산을 넘거나 중심점이 벽 안에 들어가면 위반이다. 방장 본인은 검사하지 않는다
+- **게임 중에 플레이어를 서버에서 옮기는 기능을 만들면 위반으로 되돌려진다.** 순간이동을 넣을 때는 이 컴포넌트에 알려야 한다
+- 강체가 없는 차단막(밤 차단막, 하늘 차단막)은 판정에서 뺐다. 그래서 차단막을 넘는 치트는 막지 못한다
+- 이동 속도를 바꾸는 기능을 넣을 때는 `PlayerMove.moveSpeed`를 쓰면 예산도 따라간다
+
+### 끊김 안내
+- 문구와 오류 코드는 `NetworkErrorMessages` 한곳에 있다. 새 사유는 `NetworkErrorReason`에 코드를 정해 추가하고 `GetText`에 문구를 넣는다. 폰트 `KCC-Hanbit SDF`가 정적 아틀라스라 새 글자는 없을 수 있으니 `HasCharacters`로 확인한다
+- 클라이언트 오류는 `OnClientError`에서 기록만 하고 타이틀 복귀는 `OnClientDisconnect`에서 한다. 게임 버전은 `Application.version`(Player Settings의 Version)을 비교한다
+
+### 추방 (`RoomManager`)
+- 클라이언트가 접속 직후 `ClientIdentityMessage`로 기기 ID를 보내고, 방장(Mirror 서버)이 추방 목록과 대조한다. 추방 목록은 방장 메모리에만 있고 새 방을 열면 비워진다. Node 서버는 관여하지 않는다
+- 기기 ID는 변조된 클라이언트까지 막지는 못한다. 빌드 둘을 한 PC에서 띄우면 같은 ID라 함께 막힌다(에디터 클론은 구분됨)
+
 ## 2. 작업 방법과 주의할 점
 
 ### 사용자 지침
