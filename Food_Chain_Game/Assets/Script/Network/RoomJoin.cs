@@ -133,6 +133,71 @@ public class RoomJoin : MonoBehaviour
         }
     }
 
+    // 공개 방 목록을 받는다. 성공하면 (true, 목록, null), 실패하면 (false, null, 안내 문구)
+    public void FetchPublicRooms(Action<bool, PublicRoomInfo[], string> onResult)
+    {
+        if (!ConfigManager.EnsureValid())
+        {
+            onResult(false, null, "서버 설정(IP)이 올바르지 않습니다.");
+            return;
+        }
+
+        StartCoroutine(FetchPublicRoomsCoroutine(onResult));
+    }
+
+    IEnumerator FetchPublicRoomsCoroutine(Action<bool, PublicRoomInfo[], string> onResult)
+    {
+        using (UnityWebRequest request = UnityWebRequest.Get($"{NodeServerUrl}/rooms"))
+        {
+            request.timeout = requestTimeoutSeconds;
+            yield return request.SendWebRequest();
+
+            if (request.responseCode == 200)
+            {
+                PublicRoomInfo[] rooms = null;
+                try
+                {
+                    var response = JsonUtility.FromJson<RoomListResponse>(request.downloadHandler.text);
+                    rooms = response != null && response.rooms != null ? response.rooms : new PublicRoomInfo[0];
+                }
+                catch (Exception)
+                {
+                    rooms = null;
+                }
+
+                if (rooms != null) onResult(true, rooms, null);
+                else onResult(false, null, "문제가 발생했습니다. 나중에 다시 시도해주세요.");
+            }
+            else if (request.responseCode == 429)
+            {
+                onResult(false, null, "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.");
+            }
+            else if (request.responseCode == 0)
+            {
+                onResult(false, null, NetworkErrorMessages.ServerUnreachable());
+            }
+            else
+            {
+                // 404 = 목록 기능이 없는 예전 서버
+                onResult(false, null, "방 목록을 불러오지 못했습니다.");
+            }
+        }
+    }
+
     [Serializable]
     class LookupResponse { public string address; public int port; }
+
+    [Serializable]
+    class RoomListResponse { public PublicRoomInfo[] rooms; }
+}
+
+// 공개 방 목록의 한 줄(Node 서버 GET /rooms). 제목은 방장이 보낸 그대로라 화면에 그릴 때 서식 태그를 막아야 한다
+[Serializable]
+public class PublicRoomInfo
+{
+    public string code;
+    public string title;
+    public string mapId;
+    public int current;
+    public int max;
 }

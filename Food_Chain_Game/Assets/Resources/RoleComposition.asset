@@ -1,0 +1,96 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0345bff08b69a1045896984db74659b5, type: 3}
+  m_Name: RoleComposition
+  m_EditorClassIdentifier: Assembly-CSharp::RoleComposition
+  roles:
+  - animal: 0
+    category: 0
+    alwaysInclude: 1
+    requires: 13
+    pairWith: 13
+  - animal: 1
+    category: 0
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 13
+  - animal: 2
+    category: 0
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 13
+  - animal: 3
+    category: 0
+    alwaysInclude: 0
+    requires: 0
+    pairWith: 13
+  - animal: 4
+    category: 1
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 13
+  - animal: 11
+    category: 1
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 13
+  - animal: 12
+    category: 1
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 13
+  - animal: 10
+    category: 2
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 9
+  - animal: 9
+    category: 2
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 10
+  - animal: 8
+    category: 2
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 13
+  - animal: 7
+    category: 2
+    alwaysInclude: 0
+    requires: 13
+    pairWith: 13
+  - animal: 5
+    category: 3
+    alwaysInclude: 0
+    requires: 0
+    pairWith: 13
+  - animal: 6
+    category: 3
+    alwaysInclude: 0
+    requires: 1
+    pairWith: 13
+  autoPredators:
+  - minPlayers: 1
+    count: 1
+  - minPlayers: 6
+    count: 2
+  - minPlayers: 9
+    count: 3
+  - minPlayers: 12
+    count: 4
+  autoNeutrals:
+  - minPlayers: 1
+    count: 0
+  - minPlayers: 6
+    count: 1
+  - minPlayers: 10
+    count: 2

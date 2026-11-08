@@ -23,6 +23,11 @@ public class RoomHost : MonoBehaviour
     private Coroutine heartbeatCoroutine;
     // 게임 진행 중인지. Node 서버가 이 값을 보고 게임 중인 방의 코드 조회를 바로 거부한다
     private bool inGame;
+    // 방 목록에 보일 정보(방장 게임 설정). 정해지기 전에는 보내지 않아 서버에서 비공개로 남는다
+    private bool hasRoomInfo;
+    private string roomTitle = "";
+    private bool roomIsPublic;
+    private string roomMapId = "";
 
     private void Awake()
     {
@@ -132,6 +137,7 @@ public class RoomHost : MonoBehaviour
     public void DeleteRoom(string code)
     {
         StopHeartbeat();
+        ClearRoomInfo();
 
         if (!IsConfigValid) return;
 
@@ -162,6 +168,7 @@ public class RoomHost : MonoBehaviour
     {
         StopHeartbeat();
         inGame = false;
+        // 방 정보(SetRoomInfo)는 지우지 않는다. 서버 시작 때 설정을 먼저 불러온 뒤 하트비트를 시작한다
 
         if (!IsConfigValid) return;
         heartbeatCoroutine = StartCoroutine(HeartbeatCoroutine());
@@ -202,13 +209,46 @@ public class RoomHost : MonoBehaviour
         StartCoroutine(SendHeartbeat());
     }
 
+    // 방 제목·공개 여부·맵이 바뀌었을 때(RoomManager가 GameSettings.ServerChanged에서 부른다). 바로 알리고 이후 하트비트에도 싣는다
+    public void SetRoomInfo(string title, bool isPublic, string mapId)
+    {
+        // 같은 값이어도 보낸다(새 방을 열 때 이전 방과 값이 같을 수 있음). 설정이 실제로 바뀔 때만 불린다
+        title = title ?? "";
+        mapId = mapId ?? "";
+
+        hasRoomInfo = true;
+        roomTitle = title;
+        roomIsPublic = isPublic;
+        roomMapId = mapId;
+
+        if (!IsConfigValid || !isActiveAndEnabled) return;
+        StartCoroutine(SendHeartbeat());
+    }
+
+    // 방을 닫을 때(새 방을 열 때 이전 값이 실리지 않게)
+    public void ClearRoomInfo()
+    {
+        hasRoomInfo = false;
+        roomTitle = "";
+        roomIsPublic = false;
+        roomMapId = "";
+    }
+
     private IEnumerator SendHeartbeat()
     {
         string code = RoomSessionData.CurrentRoomCode;
         string token = RoomSessionData.RoomToken;
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(token)) yield break;
 
-        string json = JsonUtility.ToJson(new HeartbeatData { code = code, inGame = inGame });
+        string json = JsonUtility.ToJson(new HeartbeatData
+        {
+            code = code,
+            inGame = inGame,
+            hasInfo = hasRoomInfo,
+            title = roomTitle,
+            isPublic = roomIsPublic,
+            mapId = roomMapId,
+        });
 
         using (UnityWebRequest request = CreateJsonPost("/heartbeat", json, token))
         {
@@ -255,7 +295,16 @@ public class RoomHost : MonoBehaviour
     class CAGData { public string code; public int delta; }
 
     [System.Serializable]
-    class HeartbeatData { public string code; public bool inGame; }
+    class HeartbeatData
+    {
+        public string code;
+        public bool inGame;
+        // hasInfo가 true일 때만 서버가 아래 방 정보를 저장한다
+        public bool hasInfo;
+        public string title;
+        public bool isPublic;
+        public string mapId;
+    }
 
     [System.Serializable]
     class RegisterResponse { public string token; }

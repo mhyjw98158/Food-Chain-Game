@@ -25,12 +25,17 @@ const CLEANUP_INTERVAL_SECONDS = intEnv("CLEANUP_INTERVAL_SECONDS", 30);
 const MAX_PLAYER_LIMIT = intEnv("MAX_PLAYER_LIMIT", 20);
 // 방장이 게임 포트를 보내지 않았을 때 쓰는 값 (Unity ConfigManager.DefaultGamePort와 같게)
 const DEFAULT_GAME_PORT = intEnv("DEFAULT_GAME_PORT", 7777);
+// 방 제목 최대 글자 수 (Unity GameSettingsRules.titleMaxLength보다 넉넉하게. 서식 태그 차단용 문자가 섞일 수 있음)
+const MAX_TITLE_LENGTH = intEnv("MAX_TITLE_LENGTH", 40);
 
 // 요청 횟수 제한: 같은 주소에서 RATE_WINDOW_SECONDS 동안 보낼 수 있는 요청 수
 const RATE_WINDOW_SECONDS = intEnv("RATE_WINDOW_SECONDS", 60);
 const RATE_LIMIT_REGISTER = intEnv("RATE_LIMIT_REGISTER", 10);
 const RATE_LIMIT_LOOKUP = intEnv("RATE_LIMIT_LOOKUP", 30);
 const RATE_LIMIT_HOST = intEnv("RATE_LIMIT_HOST", 120);
+const RATE_LIMIT_LIST = intEnv("RATE_LIMIT_LIST", 60);
+// 공개 방 목록에 한 번에 보내는 최대 개수
+const ROOM_LIST_LIMIT = intEnv("ROOM_LIST_LIMIT", 50);
 
 // 1이면 로그에 방 코드·주소를 그대로 남긴다 (문제를 추적할 때만)
 const LOG_VERBOSE = process.env.LOG_VERBOSE === "1";
@@ -53,6 +58,10 @@ const TRUST_CF_CONNECTING_IP = process.env.TRUST_CF_CONNECTING_IP === "1";
 const CODE_PATTERN = /^[A-Z0-9]{10}$/;
 const TOKEN_PATTERN = /^[0-9a-f]{48}$/;
 const TOKEN_HEADER = "X-Room-Token";
+// 맵 id (Unity MapDefinition.Id, 무작위는 "random")
+const MAP_ID_PATTERN = /^[a-z0-9_-]{1,32}$/;
+// 제목에 넣을 수 없는 제어 문자 (줄바꿈 포함)
+const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F-\u009F]/;
 
 // Middleware
 if (CORS_ORIGIN) {
@@ -95,6 +104,19 @@ function clientIp(req) {
         if (typeof forwarded === "string" && net.isIP(forwarded.trim())) return normalizeIp(forwarded.trim());
     }
     return normalizeIp(req.ip);
+}
+
+// 방 정보(제목·공개 여부·맵) 검증. 올바르면 저장할 값, 아니면 null
+function parseRoomInfo(body) {
+    const { title, isPublic, mapId } = body ?? {};
+    if (typeof title !== "string" || typeof isPublic !== "boolean" || typeof mapId !== "string") return null;
+
+    const trimmed = title.trim();
+    if (trimmed.length === 0 || Array.from(trimmed).length > MAX_TITLE_LENGTH) return null;
+    if (CONTROL_CHAR_PATTERN.test(trimmed)) return null;
+    if (!MAP_ID_PATTERN.test(mapId)) return null;
+
+    return { title: trimmed, isPublic: isPublic ? 1 : 0, mapId };
 }
 
 function isValidPort(port) {
@@ -151,6 +173,7 @@ const limitRegister = rateLimit("등록", RATE_LIMIT_REGISTER);
 const limitLookup = rateLimit("조회", RATE_LIMIT_LOOKUP);
 // 출입·하트비트·삭제는 방장이 방 하나에 계속 보내는 요청이라 넉넉하게 둔다
 const limitHost = rateLimit("방장 요청", RATE_LIMIT_HOST);
+const limitList = rateLimit("방 목록", RATE_LIMIT_LIST);
 
 // ==========================
 // SQLite 연결
@@ -164,7 +187,10 @@ const CREATE_TABLE_SQL = `
         current INTEGER NOT NULL DEFAULT 0,
         max INTEGER NOT NULL,
         token TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        is_public INTEGER NOT NULL DEFAULT 0,
+        map_id TEXT NOT NULL DEFAULT ''
     )
 `;
 
@@ -221,6 +247,9 @@ async function initDb() {
     const added = [
         ["port", `INTEGER NOT NULL DEFAULT ${DEFAULT_GAME_PORT}`],
         ["in_game", "INTEGER NOT NULL DEFAULT 0"],
+        ["title", "TEXT NOT NULL DEFAULT ''"],
+        ["is_public", "INTEGER NOT NULL DEFAULT 0"],
+        ["map_id", "TEXT NOT NULL DEFAULT ''"],
     ].filter(([name]) => !columns.some((column) => column.name === name));
 
     for (const [name, definition] of added) {
@@ -346,6 +375,34 @@ app.get("/lookup/:code", limitLookup, async (req, res) => {
 
 
 // ==========================
+// 공개 방 목록
+// ==========================
+// 공개(is_public) + 대기 중(게임 중 아님) + 자리 있음 + 살아 있음(하트비트) + 방 정보를 받은 방만.
+// 입장은 받은 code로 /lookup을 거친다. 주소·토큰은 보내지 않는다
+app.get("/rooms", limitList, async (req, res) => {
+    const rows = await dbAll(
+        `SELECT code, title, map_id, current, max FROM rooms
+         WHERE is_public = 1 AND in_game = 0 AND current < max AND current > 0
+           AND title <> '' AND updated_at >= ?
+         ORDER BY current DESC, updated_at DESC
+         LIMIT ?`,
+        [expiryThreshold(), ROOM_LIST_LIMIT]
+    );
+
+    // Unity RoomJoin.FetchPublicRooms가 읽는 형식
+    res.json({
+        rooms: rows.map((row) => ({
+            code: row.code,
+            title: row.title,
+            mapId: row.map_id,
+            current: row.current,
+            max: row.max,
+        })),
+    });
+});
+
+
+// ==========================
 // 방 출입 (인원 증가/감소)
 // ==========================
 app.post("/comeandgoing", limitHost, async (req, res) => {
@@ -388,8 +445,9 @@ app.post("/comeandgoing", limitHost, async (req, res) => {
 // 하트비트 (방이 살아 있음을 알림)
 // ==========================
 // inGame(선택): 방장이 게임 시작·로비 복귀 때 바로 보내고, 주기적인 하트비트에도 실어 보낸다 (한 번 실패해도 다음 하트비트로 맞춰짐)
+// hasInfo가 true면 title·isPublic·mapId(방장 게임 설정)도 저장한다. 공개 방 목록에 쓰인다. 값이 잘못되면 방 정보만 무시한다
 app.post("/heartbeat", limitHost, async (req, res) => {
-    const { code, inGame } = req.body ?? {};
+    const { code, inGame, hasInfo } = req.body ?? {};
     const token = getToken(req);
 
     if (!isValidCode(code)) {
@@ -408,6 +466,18 @@ app.post("/heartbeat", limitHost, async (req, res) => {
 
     if (changes === 0) {
         return res.status(404).send("방이 없거나 권한이 없습니다");
+    }
+
+    if (hasInfo === true) {
+        const info = parseRoomInfo(req.body);
+        if (info) {
+            await dbRun(
+                "UPDATE rooms SET title = ?, is_public = ?, map_id = ? WHERE code = ? AND token = ?",
+                [info.title, info.isPublic, info.mapId, code, token]
+            );
+        } else {
+            console.log(`⚠️ [방 정보 무시] 값이 올바르지 않음: ${logCode(code)}`);
+        }
     }
     res.sendStatus(200);
 });

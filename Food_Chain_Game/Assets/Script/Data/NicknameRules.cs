@@ -26,10 +26,6 @@ public class NicknameRules : ScriptableObject
     [Tooltip("{0}: 최대 글자 수")]
     [SerializeField] private string tooLongMessage = "닉네임은 {0}글자 이하로 지어주세요.";
     [SerializeField] private string bannedMessage = "사용할 수 없는 닉네임입니다.";
-    [Tooltip("{0}: 방에서 쓰게 된 이름")]
-    [SerializeField] private string duplicateNotice = "같은 닉네임이 있어 이 방에서는 {0}(으)로 표시됩니다.";
-    [Tooltip("{0}: 방에서 쓰게 된 이름")]
-    [SerializeField] private string replacedNotice = "사용할 수 없는 닉네임이라 이 방에서는 {0}(으)로 표시됩니다.";
 
     public string BannedMessage => bannedMessage;
 
@@ -78,15 +74,16 @@ public class NicknameRules : ScriptableObject
         return false;
     }
 
-    // 서버: 받은 닉네임을 방에서 쓸 이름으로 만든다. 규칙에 맞지 않으면 대체 이름을 쓰고, 방에 같은 이름이 있으면 숫자를 붙인다.
+    // 서버: 받은 닉네임을 방에서 쓸 이름으로 만든다. 방에 같은 이름이 있으면 숫자를 붙인다.
+    // 닉네임 규칙은 설정할 때(타이틀) 검사하므로 정상 클라이언트는 규칙에 맞는 이름만 보낸다.
+    // 그래도 조작된 클라이언트가 보낸 이름은 안내 없이 대체 이름으로 바꾼다(서버 검증).
     // 여기서 붙은 숫자는 그 방에서만 쓰이고 저장된 닉네임은 바뀌지 않는다
-    public string MakeRoomNickname(string requested, IEnumerable<string> takenNames, out string notice)
+    public string MakeRoomNickname(string requested, IEnumerable<string> takenNames)
     {
         string name = string.IsNullOrWhiteSpace(requested) ? string.Empty : requested.Trim();
         if (name.Length > maxLength) name = name.Substring(0, maxLength);
 
-        bool replaced = name.Length == 0 || IsBanned(name);
-        if (replaced) name = fallbackNickname;
+        if (name.Length == 0 || IsBanned(name)) name = fallbackNickname;
 
         var taken = new HashSet<string>();
         foreach (string other in takenNames)
@@ -98,13 +95,10 @@ public class NicknameRules : ScriptableObject
         for (int number = firstDuplicateNumber; taken.Contains(ComparisonKey(unique)); number++)
             unique = name + number;
 
-        notice = replaced ? string.Format(replacedNotice, unique)
-            : unique != name ? string.Format(duplicateNotice, unique)
-            : null;
         return unique;
     }
-
-    // 같은 닉네임인지 비교하는 값. 대소문자와 공백만 달라서는 구분되지 않게 한다
+    
+    // 같은 닉네임인지 비교하는 값. 대소문자와 공백은 무시한다
     private static string ComparisonKey(string text)
     {
         var builder = new StringBuilder(text.Length);
@@ -116,7 +110,7 @@ public class NicknameRules : ScriptableObject
         return builder.ToString();
     }
 
-    // 금지어 비교용: 글자만 남긴다(시 발, 시.발, 시1발을 같은 말로 본다)
+    // 금지어 비교용: 글자만 남긴다(공백, 숫자, 기호 제거)
     private static string LettersOnly(string text)
     {
         if (string.IsNullOrEmpty(text)) return string.Empty;

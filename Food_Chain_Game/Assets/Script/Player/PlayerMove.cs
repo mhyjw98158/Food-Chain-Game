@@ -10,12 +10,15 @@ public class PlayerMove : NetworkBehaviour
     private Rigidbody2D rigid;
 
     private GamePlayer localPlayer;
+    // 게임 씬(GamePlayer)은 서버 권위 이동이 입력을 받아 움직인다. 로비(RoomPlayer)는 여기서 직접 움직인다
+    private ServerAuthMovement serverAuthMovement;
    
     public Vector2 movement;
     void Start()
     {
         rigid = GetComponent<Rigidbody2D>();
         localPlayer = GetComponent<GamePlayer>();
+        serverAuthMovement = GetComponent<ServerAuthMovement>();
     }
 
     private void Update()
@@ -27,7 +30,7 @@ public class PlayerMove : NetworkBehaviour
     }
     void FixedUpdate()
     {
-        if (!isLocalPlayer) return;
+        if (!isLocalPlayer || serverAuthMovement != null || rigid == null) return;
 
         rigid.MovePosition(rigid.position + movement * moveSpeed * Time.fixedDeltaTime);
     }

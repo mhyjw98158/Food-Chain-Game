@@ -320,15 +320,12 @@ public class RoomPlayer : NetworkRoomPlayer
             if (other != this) taken.Add(other.nickname);
         }
 
-        nickname = TextSanitizer.BlockRichText(NicknameRules.Instance.MakeRoomNickname(nick, taken, out string notice));
+        nickname = TextSanitizer.BlockRichText(NicknameRules.Instance.MakeRoomNickname(nick, taken));
 
         if (!_joinAnnounced)
         {
             _joinAnnounced = true;
             ServerBroadcastSystemMessage($"{nickname}님이 입장하셨습니다.");
-
-            if (!string.IsNullOrEmpty(notice))
-                TargetReceiveMessage(0, "System", notice);
         }
 
         // 새 플레이어가 들어올 때마다 방장을 다시 정한다(첫 입장자가 방장이 되는 것도 여기서 결정)
@@ -351,6 +348,17 @@ public class RoomPlayer : NetworkRoomPlayer
         var roomManager = RoomManager.singleton as RoomManager;
         if (roomManager != null)
             roomManager.ServerKickPlayer(target);
+    }
+
+    // 방장만 게임 설정(라운드 수, 낮·밤 시간 등)을 바꿀 수 있다. 값 검증·저장·전파는 RoomManager → GameSettings
+    [Command]
+    public void CmdChangeGameSettings(GameSettingsData requested)
+    {
+        if (!isHost) return;
+
+        var roomManager = RoomManager.singleton as RoomManager;
+        if (roomManager != null)
+            roomManager.ServerChangeGameSettings(requested);
     }
 
     // 방에 있는 모든 플레이어의 채팅창에 안내 문구를 보낸다.

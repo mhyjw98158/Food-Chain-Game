@@ -46,15 +46,53 @@
 - 테두리는 원본보다 정렬이 1 낮다. 오브젝트 정렬이 바닥보다 2 이상 높아야 바닥에 묻히지 않는다
 - 고정 오브젝트의 테두리는 시야 마스크를 받지 않고, 셰이더가 원본 자리를 뚫어 테두리만 남긴다. 플레이어·시체는 시야를 따른다(`InteractOutline.AddCopy`)
 
-### 이동 검증 (`ServerMoveValidator`)
-- 이동은 클라이언트 권위 그대로이고, 서버가 불가능한 이동만 되돌린다. 시간에 따라 쌓이는 이동 예산을 넘거나 중심점이 벽 안에 들어가면 위반이다. 방장 본인은 검사하지 않는다
-- **게임 중에 플레이어를 서버에서 옮기는 기능을 만들면 위반으로 되돌려진다.** 순간이동을 넣을 때는 이 컴포넌트에 알려야 한다
-- 강체가 없는 차단막(밤 차단막, 하늘 차단막)은 판정에서 뺐다. 그래서 차단막을 넘는 치트는 막지 못한다
-- 이동 속도를 바꾸는 기능을 넣을 때는 `PlayerMove.moveSpeed`를 쓰면 예산도 따라간다
+### 이동 (서버 권위, `ServerAuthMovement`)
+- GamePlayer 위치는 서버가 정한다. 본인 클라이언트는 매 물리 틱 입력(8방향)을 보내면서 같은 계산으로 먼저 움직이고(예측), 서버가 돌려준 위치·입력 번호로 어긋난 만큼 다시 계산한다. 차이는 화면에서만 `correctionSmoothTime`(0.1초)에 걸쳐 메운다
+- 다른 클라이언트는 `OwnerPredictedNetworkTransform`(Server→Client, 본인 캐릭터에는 적용 안 함)으로 서버 위치를 보간해 본다. 방장 화면의 다른 플레이어는 입력이 몰려 와도 끊기지 않게 표시만 따라간다(`serverDisplayDelayTicks`)
+- 이동 계산은 물리 엔진이 아니라 콜라이더 캐스트(`Simulate`)라 서버와 클라이언트가 같은 결과를 낸다. Rigidbody2D는 Kinematic + Full Kinematic Contacts(구역 트리거 등 유지). 충돌 대상은 물리 설정의 레이어 충돌표(산 사람 `GamePlayer`, 유령 `Ghost`)를 그대로 쓴다
+- 하늘 차단막(날지 못하는 동물)·밤 차단막(밤 동안 모두)은 클라이언트마다 켜지는 조건이 달라 실제 콜라이더 대신 규칙으로 판정한다(`GamePlayUI.skyBlock`·`block` 아래 BoxCollider2D의 위치만 읽음). 차단막을 옮기거나 새로 만들면 이 두 오브젝트 아래에 두면 된다. 유령은 통과
+- 스피드핵: 서버는 실제 시간 한 틱에 입력 1개까지만 처리한다(렉 대비 `maxBurstInputs` 25틱까지 몰아서). 쌓인 입력이 `maxQueuedInputs`를 넘으면 버리고 클라이언트를 보정한다. 라운드가 진행 중이 아니면 서버가 이동을 막는다
+- **게임 중에 서버에서 플레이어를 옮길 때는 `ServerAuthMovement.ServerTeleport`를 쓴다.** transform만 바꾸면 다음 틱에 원래 계산 위치로 돌아간다
+- 이동 속도를 바꾸는 기능은 `PlayerMove.moveSpeed`(SyncVar)를 쓴다. 서버·클라이언트 예측이 같은 값을 쓴다
+- 본인 캐릭터는 Rigidbody2D 보간 없이 물리 틱(50Hz)마다 그린다. 보간을 시험했다가 사용자 결정으로 뺐다(2026-11-08, 반응 0.02초 지연 대신 부드러움). 다시 넣을 때는 본인 캐릭터에만 켤 것: 다른 사람 캐릭터는 transform을 직접 옮겨서 보간과 서로 덮어쓴다
+- 방장 본인은 서버이므로 검증을 받지 않는다. 로비(RoomPlayer)는 예전대로 클라이언트 권위 이동이다
+
+### 방장 게임 설정 (`GameSettings`)
+- 값: `GameSettingsData`(라운드 수, 낮·밤 시간, 방 제목, 공개 여부, 맵 id, 포식자 수·중립 수(-1 = 자동)). 범위·간격·기본값은 `Assets/Resources/GameSettingsRules.asset`
+- 흐름: 방장 슬라이더(`GameSettingsUI`) → `RoomPlayer.CmdChangeGameSettings`(방장인지 확인) → `RoomManager.ServerChangeGameSettings`(로비·시작 전만) → `GameSettings.ServerApply`(범위로 자름, 방장 PC PlayerPrefs 저장, `GameSettingsMessage`로 전파). 입장·로비 복귀 때 `OnServerReady`에서 다시 보낸다
+- 게임 적용: `GameMamager.OnStartServer` → `ApplyGameSettings`(`maxRounds`·`dayRoundTime`·`nightRoundTime`은 SyncVar라 클라이언트도 같은 값). 게임 씬을 바로 실행하면 씬의 값을 쓴다
+- 새 설정을 넣을 때: `GameSettingsData` 필드 → `GameSettingsRules`(범위·Clamp·Default) → `GameSettings`의 PlayerPrefs 키 → UI 행 → 게임 쪽 적용 순서로 추가
+- 문구에 쓰는 글자는 `KCC-Hanbit SDF`(정적 아틀라스)에 있어야 한다. `·`가 없어서 요약은 `/`로 구분했다
+
+### 역할 구성 (`RoleComposition`)
+- 구성표는 `Assets/Resources/RoleComposition.asset`: 역할마다 분류(포식자·중립·피식자·조력자), 항상 포함, `requires`(이 역할이 있을 때만), `pairWith`(함께만, 양쪽에 적음). 자동일 때 인원별 수는 `autoPredators`·`autoNeutrals`(minPlayers 이상이면 count)
+- 게임 시작 때 `RoomManager.GetCharacterPool` → `RoleComposition.Build(인원, 설정)`. 로비 표시는 같은 규칙의 `ResolveCounts`
+- **새 역할을 넣을 때:** `AnimalType`·`CharacterZoneData`·`CharacterConfig` 외에 `RoleComposition.asset`의 `roles`에도 넣어야 게임에 나온다. 포식자가 늘면 `GameSettingsRules.predators.max`도 같이 올린다
+- 피식자·조력자 자리가 모자라면 남은 중립 → 남은 포식자 순으로 더 넣는다(13명 기본은 중립 3)
+
+### 맵 (`MapDefinition`, `MapCatalog`)
+- 맵 하나 = 게임 씬 하나. 목록은 `Assets/Resources/MapCatalog.asset`, 맵마다 `Assets/Data/Map/Map_○○.asset`(지금은 `Map_Default` = `GamePlay.unity`)
+- **맵 추가 방법:** `GamePlay.unity`를 복제해 배치를 바꾼다 → 빌드 설정(Scenes In Build)에 넣는다 → `Assets/Data/Map`에서 Create > Game > Map Definition, `id`(영문 소문자, 한 번 정하면 바꾸지 않음)·이름·씬·인원 범위를 채운다 → `MapCatalog`의 `maps` 끝에 넣는다. 만드는 중인 맵은 `selectable`을 끈다
+- 맵이 2개 이상이면 설정 창에 "무작위"가 생긴다. 시작 때 서버가 `MapCatalog.ResolveForStart`로 실제 맵을 정한다(무작위면 지금 인원으로 가능한 맵 중에서, 고른 맵이 인원 범위 밖이면 시작을 막고 사유 표시) → `RoomManager.GameplayScene`을 그 씬으로 바꾸고 연다. 클라이언트는 `OnClientChangeScene`에서 같은 값으로 맞춘다
+- 게임 씬인지 판정할 때 `"GamePlay"` 이름을 쓰지 말고 `MapCatalog.Instance.IsMapScene(...)`이나 `GameplayScene`을 쓴다
+- 이번 게임의 맵 id는 서버의 `GameSettings.ServerAssignedMapId`(지금은 클라이언트에 보내지 않음)
+- 문구(맵 이름 포함)는 글꼴 `KCC-Hanbit SDF`에 있는 글자만 쓴다. 에셋에 저장된 문구는 코드 기본값을 바꿔도 그대로이므로 에셋에서 고친다
+
+### 방 제목·공개
+- 설정 창의 방 제목(입력을 마칠 때 전송), 방 공개(켜면 공개 방 목록에 표시 예정). 서버 검증: 제어 문자 제거, 20자(`GameSettingsRules.titleMaxLength`), 금지어(닉네임 금지어 목록)·빈 제목은 "닉네임의 방", 서식 태그 차단. 기본 제목은 저장하지 않아 닉네임을 바꾸면 따라간다
+- 설정이 바뀌면 `GameSettings.ServerChanged` → `RoomHost.SetRoomInfo`가 Node 서버에 바로 알리고, 이후 하트비트에도 싣는다(Node `rooms.title`·`is_public`·`map_id`)
+
+### 공개 방 목록 (`RoomListUI`)
+- 타이틀 "방 목록" 버튼 → `RoomListUI.Open` → `RoomJoin.FetchPublicRooms`(Node `GET /rooms`) → 줄(`RoomListRow`)마다 제목·맵·인원·입장. 입장은 `TitleUI.JoinRoom(code)`(코드 입장과 같은 흐름: 닉네임 확인 → `/lookup` → 접속)
+- 공개·대기 중·자리 있는 방만 나온다. 비공개 방은 코드로만. 열려 있는 동안 5초마다 다시 불러온다(`autoRefreshSeconds`)
+- 제목은 Node 서버가 받은 그대로 저장하므로 줄에 그릴 때 서식 태그를 다시 막는다(`RoomListRow.Bind`). 맵 이름은 `MapCatalog.DisplayName(mapId)`(모르는 맵 id는 "-")
+- 창은 타이틀의 `activeUi`에 맡겨 ESC로 닫힌다
 
 ### 닉네임 (`NicknameRules`)
 - 금지어는 `Assets/Resources/NicknameRules.asset`에서 고친다. 정상 단어에 들어가기 쉬운 말은 `exactBannedWords`에 넣는다
-- 방에서 보이는 이름은 서버가 `RoomPlayer.CmdSetData`에서 정하고(숫자 붙음), 저장된 닉네임(`NickNamemanager`)과 다를 수 있다. 내 방 이름이 필요하면 `NickNamemanager`가 아니라 `RoomPlayer.nickname`을 쓴다
+- 닉네임 검사는 설정할 때(타이틀)만 한다. 저장할 때 `Validate`, 방 만들기·입장 직전에 `TitleUI.EnsureValidNickname`(저장된 이름이 규칙에 어긋나면 변경 창을 띄우고 입장을 막음). 로비에서는 안내하지 않는다
+- 서버(`RoomPlayer.CmdSetData` → `MakeRoomNickname`)는 조작된 클라이언트 대비로 금지어·빈 이름을 안내 없이 `Player`로 바꾼다
+- 방에서 보이는 이름은 서버가 `RoomPlayer.CmdSetData`에서 정하고(숫자 붙음, 중복 안내는 띄우지 않음. 금지어 대체 안내만 띄움), 저장된 닉네임(`NickNamemanager`)과 다를 수 있다. 내 방 이름이 필요하면 `NickNamemanager`가 아니라 `RoomPlayer.nickname`을 쓴다
 
 ### 끊김 안내
 - 문구와 오류 코드는 `NetworkErrorMessages` 한곳에 있다. 새 사유는 `NetworkErrorReason`에 코드를 정해 추가하고 `GetText`에 문구를 넣는다. 폰트 `KCC-Hanbit SDF`가 정적 아틀라스라 새 글자는 없을 수 있으니 `HasCharacters`로 확인한다

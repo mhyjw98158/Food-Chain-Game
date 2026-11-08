@@ -19,7 +19,7 @@
 
 ## 해결되지 않는 것
 
-- **방장 치트:** 방장 PC가 서버이므로 방장은 검증을 받지 않는다(`ServerMoveValidator`도 방장은 제외). 막으려면 전용 서버가 필요하다.
+- **방장 치트:** 방장 PC가 서버이므로 방장은 검증을 받지 않는다(서버 권위 이동 `ServerAuthMovement`도 방장 캐릭터는 방장 PC가 계산). 막으려면 전용 서버가 필요하다.
 - **방장 이탈:** 게임 중 방장이 나가면 그대로 게임이 끝난다.
 - **Node 서버 필요성:** Steam 로비로 방 코드를 대체하면 필요 없어지지만, 음성 토큰을 서버가 발급한다면 계속 필요하다.
 
@@ -43,7 +43,7 @@
 | `RoomManager.OnServerConnect` | 메시지로 ID를 받음 | Steam 인증 결과로 판단 |
 | `NetworkErrorMessages` | KCP 오류 기준 | Steam 전용 사유(로그인 안 됨, 릴레이 실패 등) 추가 |
 
-그대로 쓰는 것: 게임 로직 전부, 이동 검증(`ServerMoveValidator`), 끊김 처리 흐름(`OnClientDisconnect`, `TransportError` 변환), 연결 불안정 경고(`ConnectionStatusUI`), Vivox 음성.
+그대로 쓰는 것: 게임 로직 전부, 서버 권위 이동(`ServerAuthMovement`), 끊김 처리 흐름(`OnClientDisconnect`, `TransportError` 변환), 연결 불안정 경고(`ConnectionStatusUI`), Vivox 음성.
 
 ## 방 코드를 유지할지 ★
 

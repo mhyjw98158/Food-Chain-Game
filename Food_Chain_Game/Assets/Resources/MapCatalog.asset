@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 56a171fad13e9504387b4c6ccde2c98d, type: 3}
+  m_Name: MapCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::MapCatalog
+  maps:
+  - {fileID: 11400000, guid: b8c49aab749b50c4ab61f893e81311dc, type: 2}
+  allowRandom: 1
+  randomDisplayName: "\uBB34\uC791\uC704"
+  unsupportedCountMessage: "{0} \uB9F5\uC740 {1}\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."
+  playerRangeFormat: "{0}~{1}\uBA85"
+  playerMinOnlyFormat: "{0}\uBA85 \uC774\uC0C1"
+  noPlayableMapMessage: "\uC9C0\uAE08 \uC778\uC6D0\uC73C\uB85C \uC2DC\uC791\uD560
+    \uC218 \uC788\uB294 \uB9F5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."

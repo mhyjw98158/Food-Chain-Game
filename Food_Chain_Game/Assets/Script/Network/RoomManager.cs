@@ -60,29 +60,13 @@ public class RoomManager : NetworkRoomManager
     public GameObject chatManagerPrefab;
 
     public GameObject gpPrefab; 
+    // 이번 판에 나올 역할: 인원수와 방장 설정(포식자·중립 수)으로 구성표(RoleComposition)에서 무작위로 정한다
     private List<string> GetCharacterPool(int playerCount)
     {
-        List<string> baseCharacters = new()
-    {
-        "Crow", "Wolf", "Scorpion", "Ostrich", "Zebra", "Hippo", "Owl", "Meerkat", "Crocodile", "Chameleon"
-    };
-
-        List<string> additionalCharacters = new()
-    {
-        "Hawk", "Hyena",  "Plover",   
-    };
-
-        if (playerCount < 10)
-        {
-            int clampedCount = Mathf.Clamp(playerCount, 0, baseCharacters.Count);
-            return baseCharacters.GetRange(0, clampedCount);
-        }
-        else
-        {
-            int extraCount = Mathf.Clamp(playerCount - 7, 0, additionalCharacters.Count);
-            baseCharacters.AddRange(additionalCharacters.GetRange(0, extraCount));
-            return baseCharacters;
-        }
+        var settings = GameSettings.ServerCurrent;
+        var pool = RoleComposition.Instance.Build(playerCount, settings.predatorCount, settings.neutralCount);
+        Debug.Log($"[RoomManager] 역할 구성({playerCount}명): {string.Join(", ", pool)}");
+        return pool;
     }
     public int maxPlayerCount = 1;
 
@@ -95,6 +79,8 @@ public class RoomManager : NetworkRoomManager
     [SerializeField] private bool allowCharacterSelectForTest = true;
     public bool CharacterSelectEnabled => allowCharacterSelectForTest && (Application.isEditor || Debug.isDebugBuild);
     private bool _startingGame;
+    // 게임 시작 때 서버가 배정한 맵(TryStartGame에서 정하고 StartGameDelayed에서 그 씬을 연다)
+    private MapDefinition _pendingMap;
 
     // 로비 복귀 시 본인 클라이언트가 아직 씬 로딩 중이라 재배치 지시를 미뤄 둔 플레이어 (연결 → 목적지)
     private readonly Dictionary<NetworkConnectionToClient, Vector3> _pendingRoomTeleports = new();
@@ -312,6 +298,11 @@ public class RoomManager : NetworkRoomManager
         _bannedClientIds.Clear();
         _lostConnections.Clear();
         NetworkServer.ReplaceHandler<ClientIdentityMessage>(OnClientIdentityReceived, false);
+        // 방장이 지난번에 쓴 게임 설정으로 시작한다(로비에서 바꿀 수 있음).
+        // 설정이 바뀔 때마다 방 제목·공개 여부·맵을 Node 서버에 알린다(공개 방 목록)
+        GameSettings.ServerChanged -= OnServerGameSettingsChanged;
+        GameSettings.ServerChanged += OnServerGameSettingsChanged;
+        GameSettings.ServerLoad();
         // 새 호스팅 세션이 시작되는 시점이므로, 이전 세션 종료 때 세워둔
         // 정리 가드를 다시 풀어줘야 다음 연결 끊김/에러도 정상적으로 처리된다.
         _isCleaningUp = false;
@@ -321,8 +312,16 @@ public class RoomManager : NetworkRoomManager
             roomHost.StartHeartbeat();
     }
 
+    private void OnServerGameSettingsChanged(GameSettingsData data)
+    {
+        if (roomHost != null) roomHost.SetRoomInfo(data.roomTitle, data.isPublic, data.mapId);
+    }
+
     public override void OnStopServer()
     {
+        GameSettings.ServerChanged -= OnServerGameSettingsChanged;
+        GameSettings.ServerReset();
+
         if (_stoppingStaleSession)
         {
             // 이전 방은 하트비트가 끊겨 Node 서버에서 만료로 지워진다(지금 들어 있는 코드는 새 방의 것)
@@ -357,6 +356,7 @@ public class RoomManager : NetworkRoomManager
         ClientLobbyReady = false;
         _clientAddPlayerRequested = false;
         NetworkClient.ReplaceHandler<RoomNoticeMessage>(OnRoomNoticeReceived, false);
+        GameSettings.ClientRegisterHandler();
     }
 
     public override void OnStopClient()
@@ -383,6 +383,15 @@ public class RoomManager : NetworkRoomManager
     // 불러오는 동안 메시지 처리가 멈춰 내 플레이어가 아직 도착하지 않았으므로 base가 생성을 한 번 더 요청해
     // 서버 콘솔에 "There is already a player for this connection."이 찍힌다 → 이미 요청했으면 이번에는 요청하지 않는다.
     // (첫 로비에서는 서버가 씬 메시지를 보내지 않으므로 접속 직후의 요청이 유일한 요청이다)
+    // 클라이언트도 서버가 배정한 맵 씬을 GameplayScene으로 맞춘다(게임 씬인지 판정하는 Mirror·이 클래스의 코드가 같은 값을 보게)
+    public override void OnClientChangeScene(string newSceneName, SceneOperation sceneOperation, bool customHandling)
+    {
+        base.OnClientChangeScene(newSceneName, sceneOperation, customHandling);
+
+        var map = MapCatalog.Instance.FindByScene(newSceneName);
+        if (map != null) GameplayScene = map.ScenePath;
+    }
+
     public override void OnClientSceneChanged()
     {
         bool skipAddPlayer = _clientAddPlayerRequested && NetworkClient.localPlayer == null && Utils.IsSceneActive(RoomScene);
@@ -756,6 +765,15 @@ public class RoomManager : NetworkRoomManager
             }
         }
     }   
+    // 방장이 로비에서 게임 설정을 바꿨다(RoomPlayer.CmdChangeGameSettings가 방장인지 확인한 뒤 부른다).
+    // 게임을 시작하는 중이거나 로비가 아니면 받지 않는다. 값은 GameSettingsRules 범위로 잘라서 저장한다
+    [Server]
+    public void ServerChangeGameSettings(GameSettingsData requested)
+    {
+        if (_startingGame || !Utils.IsSceneActive(RoomScene)) return;
+        GameSettings.ServerApply(requested);
+    }
+
     public void StartGame()
     {
         TryStartGame(out _);
@@ -789,6 +807,22 @@ public class RoomManager : NetworkRoomManager
             return false;
         }
 
+        // 이번 게임의 맵을 정한다(무작위면 지금 인원으로 시작할 수 있는 맵 중에서). 시작할 수 없으면 사유를 보여 준다
+        var map = MapCatalog.Instance.ResolveForStart(GameSettings.ServerCurrent.mapId, playerCount, out string mapFailReason);
+        if (map == null)
+        {
+            failReason = mapFailReason;
+            Debug.LogWarning($"[RoomManager] {failReason}");
+            return false;
+        }
+        if (!Application.CanStreamedLevelBeLoaded(map.ScenePath))
+        {
+            failReason = $"{map.DisplayName} 맵을 불러올 수 없습니다.";
+            Debug.LogError($"[RoomManager] 맵 씬이 빌드 설정에 없습니다: {map.ScenePath}");
+            return false;
+        }
+        _pendingMap = map;
+
         _startingGame = true;
         // 이 순간부터 새 입장은 게임 서버가 거부하므로 Node 서버에도 알려 코드 조회에서 바로 막히게 한다
         if (roomHost != null) roomHost.SetInGame(true);
@@ -810,6 +844,14 @@ public class RoomManager : NetworkRoomManager
         // CheckReadyToBegin이 이 목록을 비우지만, 우리는 방장 버튼으로 시작하므로(게임 후 로비에서는 준비 표시도 다시 안 함) 여기서 비운다.
         // 비우면 각 연결이 게임 씬에서 준비될 때(OnServerReady) 캐릭터가 만들어진다
         pendingPlayers.Clear();
+
+        // 배정한 맵의 씬을 연다. GameplayScene을 바꿔 두면 씬 전환 뒤의 판정(IsSameScene 등)도 이 맵 기준이 된다
+        if (_pendingMap != null)
+        {
+            GameplayScene = _pendingMap.ScenePath;
+            GameSettings.ServerSetAssignedMap(_pendingMap.Id);
+            Debug.Log($"[RoomManager] 맵 배정: {_pendingMap.DisplayName} ({_pendingMap.Id})");
+        }
 
         ServerChangeScene(GameplayScene);
     }
@@ -866,7 +908,7 @@ public class RoomManager : NetworkRoomManager
             _voiceJoinCo = StartCoroutine(CoJoinLobbyVoiceWhenReady());
             return;
         }
-        if (scene.name == "GamePlay")
+        if (MapCatalog.Instance.IsMapScene(scene.path))
         {
             // 로비 채널 입장을 기다리던 중이면 취소한다(게임 채널 입장과 엇갈리지 않게)
             if (_voiceJoinCo != null) StopCoroutine(_voiceJoinCo);
@@ -969,6 +1011,9 @@ public class RoomManager : NetworkRoomManager
         if (conn != null && _rejectedConnections.Contains(conn)) return;
 
         base.OnServerReady(conn);
+
+        // 준비된 연결에 현재 게임 설정을 보낸다(입장할 때, 게임 후 로비로 돌아올 때)
+        GameSettings.ServerSendTo(conn);
 
         if (conn == null || !_pendingRoomTeleports.TryGetValue(conn, out Vector3 destination))
             return;

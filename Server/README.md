@@ -74,11 +74,15 @@ pm2 save; pm2 startup        # (선택) PC를 켤 때 자동 실행
 |---|---|---|
 | `POST /register` | `{ code, maxPlayer, port? }` (port: 방장의 게임 포트) | 200 `{ token }` / 409 코드 중복 / 400 형식 오류 |
 | `GET /lookup/{code}` | — | 200 `{ address, port }` / 404 없음·만료 / 423 게임 진행 중 / 403 정원 초과 |
+| `GET /rooms` | — | 200 `{ rooms: [{ code, title, mapId, current, max }] }` (공개 방 목록) |
 | `POST /comeandgoing` | `{ code, delta }` (±1), 토큰 | 200 / 404 방 없음·토큰 불일치 / 401 토큰 없음 |
-| `POST /heartbeat` | `{ code, inGame? }`, 토큰 (inGame: 게임 진행 중 여부) | 200 / 404 / 401 / 400 |
+| `POST /heartbeat` | `{ code, inGame?, hasInfo?, title?, isPublic?, mapId? }`, 토큰 (inGame: 게임 진행 중 여부, hasInfo가 true면 방 정보도 저장) | 200 / 404 / 401 / 400 |
 | `DELETE /delete/{code}` | 토큰 | 200 / 404 / 401 |
 
 - 호스트 주소는 요청 본문이 아니라 `/register`를 보낸 쪽의 실제 접속 주소로 저장한다.
 - 호스트가 이 서버와 같은 기기(루프백)에서 등록한 경우 `/lookup`은 입장자가 이 서버에 접속할 때 쓴 주소를 돌려준다.
 - 방장은 게임 시작·로비 복귀 때 `/heartbeat`에 `inGame`을 바로 보내고, 20초마다 보내는 하트비트에도 같은 값을 싣는다.
+- 방 정보(방장 게임 설정): `hasInfo: true`와 함께 `title`(1~`MAX_TITLE_LENGTH`자, 기본 40, 제어 문자 불가), `isPublic`(불), `mapId`(영문 소문자·숫자·`_`·`-` 32자 이하)를 보내면 `rooms`의 `title`·`is_public`·`map_id`에 저장한다. 값이 잘못되면 방 정보만 무시하고 하트비트는 200. 방장이 설정을 바꿀 때 바로 보내고 하트비트에도 싣는다. 처음 등록한 방은 방 정보가 오기 전까지 비공개(`is_public` 0)
+- 제목은 받은 그대로 저장한다(서식 태그를 막지 않음). 목록을 보여 주는 쪽에서 다시 막아야 한다
+- `/rooms`는 공개(`is_public`)·대기 중(게임 중 아님)·자리 있음·살아 있음(하트비트)·방 정보를 받은 방만 최대 `ROOM_LIST_LIMIT`(기본 50)개, 인원 많은 순으로 보낸다. 주소·토큰은 보내지 않고, 입장은 받은 `code`로 `/lookup`을 거친다. 횟수 제한 `RATE_LIMIT_LIST`(기본 60/분)
 - 방 코드는 영문 대문자·숫자 10자.

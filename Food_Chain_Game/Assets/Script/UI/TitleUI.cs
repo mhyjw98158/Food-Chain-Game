@@ -93,14 +93,29 @@ public class TitleUI : MonoBehaviour
             nicknameDisplay.text = $"닉네임: {NickNamemanager.GetNickname()}";
             changeButton.gameObject.SetActive(true);
 
-            // 금지어가 추가되기 전에 저장한 닉네임이면 바꾸도록 안내한다(그대로 입장하면 서버가 대체 이름을 쓴다)
-            if (NicknameRules.Instance.IsBanned(NickNamemanager.GetNickname()))
-            {
-                ChangeShowPopup();
-                noticeText.text = NicknameRules.Instance.BannedMessage;
-            }
+            // 금지어가 추가되기 전에 저장한 닉네임 등 규칙에 맞지 않으면 바로 바꾸도록 한다
+            EnsureValidNickname();
         }
     }
+
+    // 방에 들어가기 전에 닉네임을 확인한다. 없거나 규칙에 맞지 않으면 설정 창을 띄우고 false.
+    // 닉네임 검사는 여기(설정할 때)에서만 하고, 로비에서는 안내하지 않는다
+    bool EnsureValidNickname()
+    {
+        if (!NickNamemanager.HasNickname())
+        {
+            FirstShowPopup();
+            return false;
+        }
+
+        string error = NickNamemanager.ValidateSavedNickname();
+        if (error == null) return true;
+
+        ChangeShowPopup();
+        noticeText.text = error;
+        return false;
+    }
+
     void UISetting()
     {
         playerCountDropdown.onValueChanged.AddListener(OnPlayerCountChanged);
@@ -196,12 +211,8 @@ public class TitleUI : MonoBehaviour
     {
         if (_enteringRoom) return;
 
-        // 닉네임 팝업은 ESC로 닫을 수 있으므로 방에 들어가기 직전에 다시 확인한다
-        if (!NickNamemanager.HasNickname())
-        {
-            FirstShowPopup();
-            return;
-        }
+        // 닉네임 팝업은 ESC·취소로 닫을 수 있으므로 방에 들어가기 직전에 다시 확인한다
+        if (!EnsureValidNickname()) return;
 
         var roomManager = RoomManager.singleton as RoomManager;
         if (roomManager == null || roomHost == null || NetworkCoordinator.Instance == null)
@@ -259,22 +270,23 @@ public class TitleUI : MonoBehaviour
 
     public void JoinByCode()
     {
-        if (_enteringRoom) return;
+        JoinRoom(codeInputField.text);
+    }
 
-        if (!NickNamemanager.HasNickname())
-        {
-            FirstShowPopup();
-            return;
-        }
+    // 코드 입장과 공개 방 목록(RoomListUI)이 함께 쓴다. 들어가기 시작했으면 true
+    public bool JoinRoom(string code)
+    {
+        if (_enteringRoom) return false;
 
-        string code = codeInputField.text;
+        if (!EnsureValidNickname()) return false;
+
         if (string.IsNullOrEmpty(code))
         {
             Debug.Log("입력창이 빈 값");
-            return;
+            return false;
         }
 
-        if (roomJoin == null || NetworkCoordinator.Instance == null) return;
+        if (roomJoin == null || NetworkCoordinator.Instance == null) return false;
 
         _enteringRoom = true;
 
@@ -295,7 +307,10 @@ public class TitleUI : MonoBehaviour
                 ShowError(errorMessage);
             }
         });
+        return true;
     }
+
+    public RoomJoin RoomJoinService => roomJoin;
 
     public void DeActiveErrorNotice()
     {

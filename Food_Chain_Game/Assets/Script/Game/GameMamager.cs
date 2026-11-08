@@ -52,7 +52,9 @@ public class GameMamager : NetworkBehaviour
     public BoxCollider2D[] zoneColliders;
     public TextMeshProUGUI timerText;      
 
-    public int maxRounds = 4;
+    // 아래 세 값(라운드 수, 낮·밤 시간)은 방장 게임 설정(GameSettings)으로 게임 시작 때 덮어쓴다.
+    // 씬의 값은 설정 없이 게임 씬을 바로 실행할 때의 기본값. 클라이언트도 표시에 쓰므로 동기화한다
+    [SyncVar] public int maxRounds = 4;
 
     public static event System.Action<RoundTime> RoundTimeChanged;
     public static event System.Action<float> TimerChanged;
@@ -95,8 +97,21 @@ public class GameMamager : NetworkBehaviour
     // 지금 라운드 표시가 '곧 낮/밤이 바뀜' 상태로 그려져 있는지
     private bool _isPhaseEnding;
 
-    public float dayRoundTime = 20f;
-    [SerializeField] private float nightRoundTime = 20f;    
+    [SyncVar] public float dayRoundTime = 20f;
+    [SyncVar, SerializeField] private float nightRoundTime = 20f;
+
+    // 방장이 로비에서 정한 설정을 이번 게임에 적용한다. 값은 서버가 이미 범위 검증을 마친 것이다
+    [Server]
+    private void ApplyGameSettings()
+    {
+        if (!GameSettings.ServerReady) return;
+
+        var settings = GameSettings.ServerCurrent;
+        maxRounds = settings.roundCount;
+        dayRoundTime = settings.daySeconds;
+        nightRoundTime = settings.nightSeconds;
+        Debug.Log($"[GameMamager] 게임 설정 적용: {maxRounds}일, 낮 {dayRoundTime}초, 밤 {nightRoundTime}초");
+    }
 
     public static Dictionary<AnimalType, int> MaxHungryRounds = new()
     {
@@ -144,6 +159,8 @@ public class GameMamager : NetworkBehaviour
     }
     public override void OnStartServer()
     {
+        // 라운드 흐름을 시작하기 전에 방장 설정을 적용한다(스폰 전이라 클라이언트도 처음부터 이 값을 받는다)
+        ApplyGameSettings();
         roundFlowCo = StartCoroutine(RoundFlow());
     }
     private void OnPlayersChanged(SyncList<GamePlayer>.Operation op, int index, GamePlayer oldItem, GamePlayer newItem)
