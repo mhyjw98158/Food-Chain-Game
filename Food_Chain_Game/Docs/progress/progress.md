@@ -4,10 +4,8 @@
 
 ## 1. 현재 상태
 
-- 브랜치 `mainc`. 2026-10-30 작업까지 커밋해 `origin/mainc`에 올림(최신 커밋은 `git log`로 확인)
+- 브랜치 `mainc`. 2026-11-11 작업까지 커밋해 `origin/mainc`에 올림(최신 커밋은 `git log`로 확인)
 - 메인 에디터: 컴파일 에러 없음
-- 커밋 안 한 것(2026-11-08): 서버 권위 이동 변경(`ServerAuthMovement` 등)
-- 커밋 안 한 것(2026-11-10): fishB 새 조작·화면 확대, fishC 작살 미션(게임 적용: 배정·맵 오브젝트), `Mission Test` 씬 정리(`MissionTestLauncher`), 방 만들기 창 공개 여부 토글(2026-11-11)
 - 커밋 안 한 것: `Food_Chain_Game.slnx`, `Assets/TextMesh Pro/Examples & Extras/`(작업과 무관해 그대로 둠)
 - 실행 중인 Node 서버는 다시 켜야 2026-10-30 변경이 적용된다. Cloudflare Tunnel 실제 적용은 남음(`plan.md` 6단계)
 
