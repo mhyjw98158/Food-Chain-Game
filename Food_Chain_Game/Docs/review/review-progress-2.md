@@ -1364,3 +1364,72 @@ Unity MCP 연결 상태에서 진행(컴파일·씬 확인·플레이 모드 확
 - **[GameSettingsUI.cs, GameRoom.unity]** 설정 창에 "포식자 수"·"중립 역할 수" 행(밤 시간 행 복제), 창 높이 900 → 1000·행 간격 110. 값은 "자동(2명)" / "2명"으로 지금 로비 인원에서 실제로 쓰일 수를 보여 주고, 인원이 바뀌면 다시 그린다. 요약에 4번째 줄 "포식자 ○ / 중립 ○", 요약 칸 높이 110 → 140
 - 확인: 컴파일 에러 0. 에디터에서 1~13명 × 설정 25가지 20,000번 구성 → 인원수와 같음·늑대 항상·악어 없는 악어새 없음·얼룩말/타조 따로 없음·중복 없음 모두 통과. 13명 기본: 포식자 4·중립 3(피식자·조력자 6자리를 넘어 중립 1 추가). 호스트 + 클론 0: 슬라이더 범위 0~4, 포식자 3·중립 1로 바꾸면 서버 값·저장 반영, 2명일 때 요약이 "포식자 1명 / 중립 1명"으로 양쪽 같음, 게임 시작 → "역할 구성(2명): Wolf, Chameleon"대로 배정. 새 경고·에러 없음. 시험 저장값 지움. 테스트: review-tests-2.md ROLES
 - 알려진 점: 2명 이하(시험용)는 늑대 + 조력자/중립처럼 피식자가 없을 수 있다. 직접 정한 수가 인원보다 많으면 줄여서 쓴다(값 표시도 줄인 수)
+
+## [2026-11-10] 낚시 미션 B(fishB) 그물 던지기 조작 변경
+
+사용자 요청: 마우스로 그물을 던질 때 강약·위치 조절이 잘 안 되니 원하는 곳에 던질 수 있게(던지는 방식 자체를 바꿔도 됨).
+- 원인: 손을 뗄 때의 마우스 속도(최근 0.3초 평균)로 거리를 정해서, 같은 동작도 결과가 들쭉날쭉하고 놓기 직전 손이 느려지면 아주 짧게 날아갔다. 착지 위치를 미리 볼 방법도 없었고, 곡선 궤적의 휘는 방향도 무작위였다
+- **[FishNetB.cs]** 새총식 조준으로 교체: 놀이 영역(Control/Fishing Area)에서 누른 채 던질 방향의 반대로 당기면 당긴 길이에 비례해 멀리 간다(`pullForMaxRange` 260만큼 당기면 최대 `maxThrowRange` 950). 조준 중에는 착지 미리보기(그물 모양 반투명 + 가운데 점)와 궤적 점 12개가 보이고, 놓으면 정확히 그 위치에 떨어진다. `minPullToThrow`(25)보다 짧게 당기고 놓거나 우클릭하면 취소(재시도 대기 없음). 그물은 마우스를 따라다니지 않고 제자리에서 출발하며, 당길 때 최대 40만큼 뒤로 끌려오는 연출. 비행은 무작위 곡선 대신 직선 + 감속, 공중에서 커졌다 작아지는 높이감(`flightTime` 0.45초). `slingshotMode`를 끄면 끈 방향 그대로 던짐. 입력은 IPointer 이벤트 대신 Update에서 마우스 버튼 확인(그물을 직접 잡지 않아도 됨)
+- 수치는 새 필드 이름이라 프리팹의 예전 값(속도 매핑·throwTime 0.8 등)은 쓰이지 않는다. 미리보기는 프리팹을 고치지 않고 실행 중에 Fishing Area 아래에 만든다(`aimMarker`를 넣으면 그것을 씀)
+- 확인: 컴파일 에러·경고 0. 플레이 조작감은 미확인. 테스트: review-tests-2.md FISHB
+
+## [2026-11-10] 미션 수정은 Mission Test 씬에서 먼저 — fishB·독 미션 테스트판
+
+사용자 요청: 미션 수정·테스트는 `Mission Test` 씬에서 하고, 사용자가 테스트해서 확정하면 게임에 적용. 독 미션과 fishB를 테스트할 수 있게.
+- 바로 위 항목의 새 그물 조작은 게임에 들어가지 않도록 되돌림: **[FishNetB.cs]** 커밋된 예전 코드로 복원(부모만 `FishNetBBase`로, `Init`에 override). 새 조작은 **[FishNetBTest.cs 새 파일]**(`FishNetBTest`)로 옮김
+- **[FishNetBBase.cs 새 파일, FishB.cs]** 그물 공통 부모(`Init`만). `FishB.fishNet` 필드 형식을 `FishNetB` → `FishNetBBase`로(게임 프리팹의 기존 연결 그대로 유지 확인)
+- **[Prefab/Mission/MissionTest/ 새 폴더]** `Mission_FishB_Test.prefab`(게임 프리팹 복사 + 그물 컴포넌트를 `FishNetBTest`로 교체, retryDelay·schoolHitPadding 값 옮김), `Mission_PoisonA_Test.prefab`(현재 독 미션 그대로 복사, 이후 독 미션 수정은 여기서)
+- **[Mission Test.unity]** `Mission GroupB/Mission Group1`에 두 테스트 프리팹, `Btn GroupB/Btn Group1`에 "FishB Test"·"PoisonA Test" 버튼(RevengeA 버튼 복제, 오른쪽으로 나란히) → 각 미션 `Begin`
+- 확인: 컴파일 에러·경고 0. 게임 프리팹 `Mission_FishB`의 그물은 `FishNetB` 그대로. 플레이 모드에서 두 버튼 → 미션 열림, 착지 미리보기 점 12개 생성, 에러 없음. 실제 마우스 조작감은 미확인. 테스트: review-tests-2.md FISHB
+
+## [2026-11-10] Mission Test 씬 해상도·그룹 버튼 정리
+
+사용자 요청: 테스트 씬 해상도가 안 맞으니 버튼으로 모든 미션을 테스트할 수 있게, 나눠 둔 그룹의 버튼만 보이게, 미션도 제대로 보이게. 독 미션은 바꿀 게 없으니 그대로.
+- **[MissionTestLauncher.cs 새 파일, Script/Mission/Test/]** 그룹 탭을 누르면 그 그룹 버튼만 보이고(선택 탭 노란색), 미션 버튼은 `Launch(프리팹)`으로 게임(`MissionUIManager`)과 같이 프리팹을 새로 만들어 `Begin`. 진행 중에는 탭·버튼을 숨기고 왼쪽 위 "Close (ESC)" 버튼·ESC로 닫기, 성공·실패하면 지우고 버튼 화면으로(콘솔에 `[MissionTest] ○○ 성공/실패`). 매번 새로 만들어서 한 번 끝난 미션을 다시 열어도 정상
+- **[Mission Test.unity]** Canvas Scaler를 게임과 같게(Scale With Screen Size 1920x1080, 0.5). `Mission Root`(화면 전체), `Group Tabs`(A-1, A-2, A-3, B-1), `Close Mission Button`, `Mission Test Launcher` 추가. 버튼 묶음은 화면 아래에 가로 배치(HorizontalLayoutGroup), 버튼 연결을 씬 안 미션 → 미션 프리팹으로 바꿈. 빈 그룹(B-2, B-3) 끔. 씬에 있던 미션 인스턴스(`Mission GroupA/B`)는 더 쓰지 않아 꺼 둠
+- 독 미션 테스트판(`Mission_PoisonA_Test` 프리팹·버튼) 삭제. 독 미션은 A-3의 PoisonA 버튼(게임 프리팹)으로 시험
+- **[FishNetBTest.cs, Mission_FishB_Test.prefab]** 실제 크기에 맞춰 최대 거리 950 → 620(그물에서 낚시 영역 위쪽 모서리까지), 최대로 당기는 길이 260 → 240
+- 확인: 컴파일 에러·경고 0. 플레이 모드에서 탭 전환(그 그룹만 보임), 버튼 19개 전부 열기 → 에러 없음·크기가 캔버스 전체(독·복수는 프리팹 크기 1320x780), 닫기 버튼 → 메뉴 복귀. 화면 캡처로 버튼 화면·fishB·독 미션 표시 확인. 테스트: review-tests-2.md MTEST
+
+## [2026-11-10] fishB 테스트 B안: 잡고 휘둘러 던지기
+
+사용자 요청: 지금(뒤로 당기기)은 A안으로 남기고, 예전처럼 잡고 직접 휘둘러 던지는 방식을 새로 만들어 둘 다 해 보고 나은 쪽을 적용.
+- **[FishNetBFlick.cs 새 파일]** 누르면 그물이 마우스 위치로 잡히고 따라오며, 놓는 순간의 손 방향·속도로 날아감. 예전 방식의 문제를 고침: 속도는 0.3초 평균 대신 최근 0.08초 이동으로 재고, 놓기 직전 0.1초 안의 가장 빠른 값을 써서 놓을 때 손이 느려져도 약해지지 않음. 속도 450 미만으로 놓으면 던지지 않고 취소(우클릭도 취소), 450~2600을 거리 60~620에 비례. 휘두르는 동안 "지금 놓으면 떨어질 위치"(그물 미리보기 + 궤적 점)가 보임(`showPreview`로 끌 수 있음). 그물이 영역 끝에 닿아도 속도는 실제 마우스 위치로 재서 끊기지 않음. 잡지 않을 때는 그물이 마우스를 따라다님(예전과 같음, `followMouseWhenIdle`). 비행·성공 판정·재시도는 A안과 같음
+- **[Mission_FishB_TestA.prefab(이름 변경), Mission_FishB_TestB.prefab 새 파일]** A안 = `FishNetBTest`(당기기), B안 = `FishNetBFlick`(던지기)
+- **[Mission Test.unity]** B-1 그룹 버튼 "FishB A Pull"(기존 FishB Test 버튼), "FishB B Throw" 추가
+- 확인: 컴파일 에러·경고 0. 플레이 모드에서 두 버튼 → 각각 맞는 그물 스크립트로 열림, 에러 없음. 마우스로 실제 던지는 조작은 미확인. 테스트: review-tests-2.md FISHB2
+
+## [2026-11-10] fishB에 B안 적용·화면 확대, A안으로 fishC(작살) 새로 만듦
+
+사용자 요청: B안(휘둘러 던지기)을 fishB에 적용하되 호수와 UI를 더 크게. A안(당기기)은 fishC로 새로 만들어, 물고기 떼 대신 큰 물고기 하나, 그물 대신 얇고 긴 작살로 차이를 둬서 둘 다 쓰기.
+- **[FishNetB.cs]** B안(`FishNetBFlick`) 코드를 게임용 `FishNetB`로 옮김(클래스 이름만 원래대로). `autoMaxRange`(기본 켬): 최대 거리를 그물 위치에서 호수 위쪽 모서리까지로 자동 계산해 호수 크기를 바꿔도 맞음. 프리팹에 남아 있던 예전 값 중 `followSmooth`·`retryDelay`·`schoolHitPadding`만 이어 쓰고 나머지는 새 기본값
+- **[Mission_FishB.prefab]** 창 1320x780 → 1700x960(가운데), 놀이 영역 여백 줄임, 호수 920x330 → 1520x580, 그물 130x110 → 160x135, 물고기 떼·혼자 다니는 물고기 1.3배. 자동 최대 거리 약 880
+- **[BaseMission.cs, MissionData.cs]** `MissionType.Fish_C = 23`(맨 끝에 추가), 이름 "작살로 물고기 잡기". 미션 분류(`MissionMeta`)에는 아직 넣지 않아 게임에서는 배정되지 않음
+- **[FishC/FishC.cs, FishC/HarpoonC.cs 새 파일]** `FishC : FishB`(진행·시간 제한·성공 표시는 fishB와 같음). `HarpoonC`: A안 당기기 조준 그대로 + 작살이 던질 방향을 가리키며 회전, 조준점은 빨간 십자, 놓으면 작살 끝이 조준점에 꽂힘(0.3초, 직선), 작살 끝이 큰 물고기(+여유 6)에 닿으면 성공, 빗나가면 1초 뒤 복귀. 최대 거리 자동 계산
+- **[Mission_FishC.prefab 새 파일]** 확대한 fishB 복사 → 물고기 떼를 큰 물고기 하나(230x80 + 꼬리, `FishSchoolB` 그대로 쓰되 더 빠르게: 이동 1.6~3초, 곡선 40~120), 그물을 작살(16x190 + 끝)로. 혼자 다니는 작은 물고기는 배경으로 남김. missionType Fish_C
+- **[Mission Test.unity]** B-1 그룹: "FishB A Pull"·"FishB B Throw" 버튼 → "FishC" 하나로. fishB는 A-2의 FishB 버튼(게임 프리팹)으로 시험. 이전에 씬에 넣어 두었던 `Mission_FishB_Test` 인스턴스(프리팹이 지워져 스크립트 없음 경고) 삭제
+- 삭제: `FishNetBFlick.cs`, `FishNetBTest.cs`, `Prefab/Mission/MissionTest/` 폴더(테스트 A·B 프리팹)
+- 확인: 컴파일 에러·경고 0. 플레이 모드: fishB 확대 화면 캡처, 자동 최대 거리 882. fishC 열림(Fish_C), 당기기 조준을 코드로 흉내 내 작살 회전·십자·궤적 화면 캡처, 물고기 가운데로 던짐 → "성공", 물고기 옆은 판정 실패. 마우스 실제 조작감은 미확인. 테스트: review-tests-2.md FISHB2, FISHC
+
+## [2026-11-10] fishC 게임에 넣기
+
+사용자 요청: 추가한 미션을 게임에 적용(미션 배정에 나오고 바뀐 미션이 나오도록).
+- **[MissionSelector.cs]** `MissionMeta`의 Fish 분류에 `Fish_C` 추가 → 물고기 미션을 받는 하마·올빼미·전갈·카멜레온이 fishA·B·C 중 하나를 받음
+- **[GamePlay.unity]** `Room Map/River/Fish C`: fishB 미션 오브젝트(`Room Map/River/Fish`, 강 구역 오른쪽 위)를 복제해 왼쪽 5칸(36.19, 5.25)에 둠, 종류 Fish_C(상호작용 범위·최소 시간 2초는 fishB와 같음). 벽·경계와 겹치지 않음 확인. `MissionManager`의 `MissionUIManager.missionPrefabs`에 `Mission_FishC` 추가(18 → 19개). fishB는 같은 `Mission_FishB` 프리팹을 쓰므로 바뀐 조작·크기가 그대로 게임에 나옴
+- 미니맵 마커·서버 판정(범위, 최소 시간, 한 명만 사용)은 미션 종류와 상관없이 `MissionRegistry`에 등록된 오브젝트로 처리돼 따로 고칠 것 없음
+- 확인: 컴파일 에러·경고 0. 에디터에서 동물 4종 × 2,000번 배정 → Fish_A·B·C가 고르게 나옴, 이름 "작살로 물고기 잡기". 실제 네트워크 게임에서 fishC 오브젝트 상호작용·완료는 미확인. `GamePlay.unity`는 저장 때 그림자 메시가 다시 만들어져 변경 줄 수가 크다(약 1.5만 줄, 알려진 현상). 테스트: review-tests-2.md FISHCGAME
+
+## [2026-11-10] fishB 그물·판정 소폭 확대, fishC 물고기 빠르게
+
+사용자 요청: fishB 그물 크기와 판정을 소폭 늘리고, fishC 물고기 속도를 올리기.
+- **[Mission_FishB.prefab]** 그물 160x135 → 180x150(착지 미리보기도 같이 커짐), 판정 여유 `schoolHitPadding` 10 → 22(물고기 떼 사방으로 12씩 넓어짐)
+- **[Mission_FishC.prefab]** 큰 물고기 한 구간 이동 시간 1.6~3초 → 1.1~2초(약 1.4배 빠름)
+- 확인: 플레이 모드에서 두 미션 열림·값 반영, 에러 없음(코드 변경 없음). 테스트: review-tests-2.md FISHTUNE
+
+## [2026-11-11] 방 만들 때 공개 여부 선택
+
+사용자 요청: 방을 만들 때 공개 여부도 고를 수 있게.
+- **[GameSettings.cs]** `SavedIsPublic`(get/set): 방장 PC에 저장된 공개 여부(`GameSettings_IsPublic`, 로비 설정 창이 저장하는 것과 같은 키). 없으면 `GameSettingsRules.defaultPublic`
+- **[TitleUI.cs]** `publicToggle` 추가. 방 만들기 창을 열 때 저장 값으로 표시, "만들기"를 누르면 토글 값을 저장 → 방이 열릴 때 `GameSettings.ServerLoad`가 읽어 Node 서버에 공개 여부를 알림(기존 흐름 그대로). 토글이 비어 있으면 저장 값 그대로
+- **[Title.unity]** `Create Room Group/Panel/Public Toggle`(500x70, 패널 가운데 아래쪽 y -120): 체크 칸 + "공개 방 (방 목록에 표시)" 글자(KCC-Hanbit), `TitleUI.publicToggle`에 연결
+- 확인: 컴파일 에러·경고 0. 플레이 모드에서 창을 열면 토글이 저장 값(켜짐)으로 표시, 다른 요소와 겹치지 않음(위치 계산). 화면 캡처는 오버레이 UI가 찍히지 않아 못 함. 실제 방 생성→목록 표시는 미확인. 테스트: review-tests-2.md ROOMPUB

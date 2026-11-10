@@ -115,6 +115,12 @@
 - 플레이 모드는 필요하면 직접 꺼도 된다(사용자 허락).
 - push는 사용자 확인 후에만.
 
+### 미션 수정·테스트 (2026-11-10 사용자 지시)
+- 미션을 고칠 때는 게임용 코드·프리팹을 바로 바꾸지 않는다. `Assets/Prefab/Mission/MissionTest/Mission_○○_Test.prefab`(게임 프리팹 복사)와 필요하면 `○○Test` 스크립트를 만들고, `Mission Test` 씬의 `Btn GroupB/Btn Group1`에 버튼을 복제해 OnClick을 `Mission Test Launcher.Launch(테스트 프리팹)`으로 연결한다(씬에 미션 인스턴스를 두지 않는다)
+- `Mission Test` 씬: `MissionTestLauncher`가 그룹 탭(`groups` 목록: 탭 버튼 ↔ 버튼 묶음)으로 한 그룹만 보여 주고, 미션은 `Mission Root`(화면 전체)에 프리팹을 새로 만들어 연다. 새 그룹 묶음을 만들면 `groups`에 탭과 함께 추가. Canvas Scaler는 게임과 같은 1920x1080·0.5
+- 사용자가 테스트해서 확정하면 게임에 적용: 테스트 스크립트 내용을 게임 스크립트로 옮기고(클래스 이름만 원래대로), 바뀐 인스펙터 값·오브젝트를 게임 프리팹(`MissionPrefab/`)에도 반영한 뒤, 테스트 스크립트를 지우고 테스트 프리팹은 게임 프리팹 새 복사본으로 다시 맞춘다
+- fishC(`Mission_FishC`, 게임 적용됨, 맵 오브젝트 `Room Map/River/Fish C`)는 B-1 버튼으로도 시험할 수 있다. fishB·fishC는 같은 `FishB` 진행 코드를 쓰고 던지는 도구만 다르다(`FishNetBBase` ← `FishNetB` 그물 / `HarpoonC` 작살). 물고기 움직임도 같은 `FishSchoolB`(fishC는 큰 물고기 하나를 schoolShadow로)
+
 ### Unity MCP
 - 인스턴스
   - 메인(호스트): `Food_Chain_Game@4ff81786c685e2db`

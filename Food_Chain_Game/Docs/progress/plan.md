@@ -14,6 +14,7 @@
 
 ## 2단계 — 사용자 결정이 필요한 것 ★
 
+
 ## 3단계 — 기능·리소스
 
 - [ ] **의상 그림 넣기** — `Assets/Data/Costume/Costume_○○.asset`의 `bodySprite`(+ 필요 시 `overlaySprite`, `icon`). 방법은 `handoff.md`

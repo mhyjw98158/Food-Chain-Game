@@ -15,7 +15,8 @@ public enum MissionType
     Fish_A = 13, Fish_B = 14,
     Meat_A = 15, Meat_B = 16,
     Scorpion_Poison = 17,
-    RevengeA = 18, RevengeB = 19, RevengeC = 20, RevengeD = 21, RevengeE = 22
+    RevengeA = 18, RevengeB = 19, RevengeC = 20, RevengeD = 21, RevengeE = 22,
+    Fish_C = 23
 }
 public enum MissionDenyReason : byte
 {

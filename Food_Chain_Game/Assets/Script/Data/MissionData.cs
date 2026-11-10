@@ -49,6 +49,9 @@ public static class MissionData
         {
             MissionType.Fish_B, "물고기 잡기"
         },
+        {
+            MissionType.Fish_C, "작살로 물고기 잡기"
+        },
 
         // === 나뭇가지 ===
         {

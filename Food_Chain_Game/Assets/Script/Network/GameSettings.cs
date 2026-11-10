@@ -69,6 +69,17 @@ public static class GameSettings
     // 방장은 이 PC의 플레이어이므로 저장된 닉네임을 기본 제목에 쓴다
     private static string HostNickname => NickNamemanager.GetNickname();
 
+    // 타이틀의 방 만들기 창에서 고른 공개 여부. 방을 열 때 ServerLoad가 이 값을 읽는다(로비 설정 창과 같은 저장 값)
+    public static bool SavedIsPublic
+    {
+        get => PlayerPrefs.GetInt(PublicKey, GameSettingsRules.Instance.defaultPublic ? 1 : 0) != 0;
+        set
+        {
+            PlayerPrefs.SetInt(PublicKey, value ? 1 : 0);
+            PlayerPrefs.Save();
+        }
+    }
+
     // ───── 서버 ─────
 
     // 방을 열 때 방장이 지난번에 쓴 설정을 불러온다. 저장된 제목이 없으면 "닉네임의 방"

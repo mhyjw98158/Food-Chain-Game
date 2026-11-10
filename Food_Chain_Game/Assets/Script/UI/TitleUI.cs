@@ -36,6 +36,8 @@ public class TitleUI : MonoBehaviour
 
     [Header("Room")]
     [SerializeField] private int maxSelectablePlayerCount = 13;
+    [Tooltip("방 만들기 창의 공개 방 토글(켜면 공개 방 목록에 보이고, 끄면 코드로만 입장)")]
+    [SerializeField] private Toggle publicToggle;
 
     // 방 생성/입장 버튼 연타로 씬이 두 번 로드되는 것을 막는다
     private bool _enteringRoom;
@@ -200,6 +202,10 @@ public class TitleUI : MonoBehaviour
     {
         CreateRoomUI.SetActive(true);
         activeUi = CreateRoomUI;
+
+        // 지난번에 고른 공개 여부(로비 설정 창에서 바꾼 값 포함)를 보여 준다
+        if (publicToggle != null)
+            publicToggle.SetIsOnWithoutNotify(GameSettings.SavedIsPublic);
     }
 
     public void HideCreateRoomUI()
@@ -226,6 +232,10 @@ public class TitleUI : MonoBehaviour
         Debug.Log("호스트 시작");
         maxPlayer = SelectedPlayerCount;
         roomManager.maxPlayerCount = SelectedPlayerCount;
+
+        // 고른 공개 여부를 저장해 두면 방이 열릴 때 GameSettings.ServerLoad가 읽어 Node 서버에 알린다
+        if (publicToggle != null)
+            GameSettings.SavedIsPublic = publicToggle.isOn;
 
         // Node 서버에 방이 등록된 것을 확인한 뒤에 호스트를 시작한다.
         // 등록에 실패한 채로 방을 열면 코드는 표시되지만 그 코드로는 아무도 들어올 수 없다

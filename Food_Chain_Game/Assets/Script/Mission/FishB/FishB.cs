@@ -12,7 +12,7 @@ public class FishB : BaseMission
 
     [Header("Refs")]
     [SerializeField] private FishSchoolB fishSchool;
-    [SerializeField] private FishNetB fishNet;
+    [SerializeField] private FishNetBBase fishNet;
 
     [Header("UI")]
     [SerializeField] private TextMeshProUGUI statusText;

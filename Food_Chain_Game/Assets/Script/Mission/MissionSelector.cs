@@ -207,6 +207,7 @@ public static class MissionMeta
         // 어류
         { MissionType.Fish_A, MissionCategory.Fish },
         { MissionType.Fish_B, MissionCategory.Fish },
+        { MissionType.Fish_C, MissionCategory.Fish },
 
         // 나뭇가지
         { MissionType.Wood_A, MissionCategory.Branch },
