@@ -1,0 +1,52 @@
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class MissionObject : MonoBehaviour
+{
+    [SerializeField] private MissionType missionType;
+    [Tooltip("서버가 미션 시작/완료를 허용하는 최대 거리. 자식 트리거(상호작용 영역)를 덮도록 넉넉하게 설정")]
+    [SerializeField] private float interactRange = 4f;
+
+    [Tooltip("서버가 완료를 인정하는 최소 소요 시간(초). 시작 승인 후 이보다 빨리 온 완료 요청은 거부된다. 정상 플레이의 최단 클리어 시간보다 작게 설정")]
+    [SerializeField] private float minDurationSeconds = 2f;
+    public float MinDurationSeconds => minDurationSeconds;
+
+    private Collider2D _bodyCollider;
+
+    public MissionType MissionType => missionType;
+
+    public bool IsInRange(Vector2 position)
+    {
+        Vector2 closest = (_bodyCollider != null && _bodyCollider.enabled)
+            ? _bodyCollider.ClosestPoint(position)
+            : (Vector2)transform.position;
+
+        return (closest - position).sqrMagnitude <= interactRange * interactRange;
+    }
+
+    private void Awake()
+    {
+        _bodyCollider = GetComponent<Collider2D>();
+
+        SetEnabled(false);
+        StartCoroutine(RegisterWhenRegistryReady());
+    }
+
+    private IEnumerator RegisterWhenRegistryReady()
+    {
+        int guard = 0;
+        while (MissionRegistry.Instance == null && guard++ < 300)
+            yield return null;
+
+        if (MissionRegistry.Instance != null)
+            MissionRegistry.Instance.Register(this);
+    }
+
+    public void SetEnabled(bool enabled)
+    {
+        this.enabled = enabled;
+    }
+
+    // 미션은 상호작용 키로만 시작한다(PlayerMove → Scanner.CurrentMission). 오브젝트 클릭으로는 시작하지 않는다
+}

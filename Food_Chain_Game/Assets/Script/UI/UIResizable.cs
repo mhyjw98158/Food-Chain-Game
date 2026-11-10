@@ -50,13 +50,12 @@ public class UIResizable : MonoBehaviour, IDragHandler, IBeginDragHandler
 
     public void LockResize()
     {
-        if (isLock)
-        {
-            isLock = false;
-        }
-        else
-        {
-            isLock = true;
-        }
+        SetLock(!isLock);
+    }
+
+    // 저장된 잠금 상태를 적용할 때도 쓴다(ChatWindowSettings)
+    public void SetLock(bool locked)
+    {
+        isLock = locked;
     }
 }

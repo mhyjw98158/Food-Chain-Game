@@ -1,79 +1,143 @@
-using Mirror;
+﻿using Mirror;
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public class PlayerMove : NetworkBehaviour
 {
-    public Scanner scanner;
-
     [SyncVar]public float moveSpeed = 5f;
-    public Vector2 lastMoveDirection = new(1, 0);
     private Rigidbody2D rigid;
 
-    public bool isStop = false;
-    public static bool isEvent = false;
-    private static TMP_InputField[] inputFields;
     private GamePlayer localPlayer;
-
+    // 게임 씬(GamePlayer)은 서버 권위 이동이 입력을 받아 움직인다. 로비(RoomPlayer)는 여기서 직접 움직인다
+    private ServerAuthMovement serverAuthMovement;
+   
+    public Vector2 movement;
     void Start()
     {
         rigid = GetComponent<Rigidbody2D>();
-        inputFields = FindObjectsOfType<TMP_InputField>();
         localPlayer = GetComponent<GamePlayer>();
+        serverAuthMovement = GetComponent<ServerAuthMovement>();
     }
 
     private void Update()
     {
-        if (scanner != null && isLocalPlayer && GameMamager.Instance && TryGetComponent(out GamePlayer gp))
-            scanner.UpdateKillUI(localPlayer);
-
-        isStop = false;
-
-        foreach (var input in inputFields)
-        {
-            if (input.isFocused)
-            {
-                isStop = true;
-                break;
-            }
-        }
+        if (!isLocalPlayer) return;
+        
+        Move();
+        Interaction();
     }
     void FixedUpdate()
     {
-        if (!isLocalPlayer) return;
-        if (isStop) return;
-        if (isEvent) return;
-        if (GameMamager.Instance != null)
-        {
-            if(!GameMamager.Instance.isRoundActive)
-                return;
-        }
+        if (!isLocalPlayer || serverAuthMovement != null || rigid == null) return;
 
-        float h = Input.GetAxisRaw("Horizontal");
-        float v = Input.GetAxisRaw("Vertical");
-
-        Vector2 input = new Vector2(h, v).normalized;
-
-        if (input.x != 0)
-        {
-            lastMoveDirection = input;
-        }
-
-        if (Input.GetKeyDown(KeyCode.Space))
-        {
-            if (TryGetComponent(out GamePlayer gp))
-            {
-                gp.CmdAttack();
-            }
-        }
-        Vector2 newPos = rigid.position + input * moveSpeed * Time.fixedDeltaTime;
-        rigid.MovePosition(newPos);
+        rigid.MovePosition(rigid.position + movement * moveSpeed * Time.fixedDeltaTime);
     }
-    public static void RegisterInputField()
+
+    private void Move()
     {
-        inputFields = FindObjectsOfType<TMP_InputField>();
+        if (!isLocalPlayer) return;
+        // 이동이 잠기면 방향도 지운다. 남겨 두면 FixedUpdate가 마지막 방향으로 계속 움직인다
+        if (!UIManager.Instance.CanMove() || ChatInputFocus.IsFocused || (GameMamager.Instance != null && !GameMamager.Instance.isRoundActive))
+        {
+            movement = Vector2.zero;
+            return;
+        }
+
+        movement = Vector2.zero;
+
+        if (Input.GetKey(KeySetting.keys[KeyAction.UP]))
+        {
+            movement.y = 1;
+        }
+        if (Input.GetKey(KeySetting.keys[KeyAction.DOWN]))
+        {
+            movement.y = -1;
+        }
+        if (Input.GetKey(KeySetting.keys[KeyAction.LEFT]))
+        {
+            movement.x = -1;
+        }
+        if (Input.GetKey(KeySetting.keys[KeyAction.RIGHT]))
+        {
+            movement.x = 1;
+        }
+
+        movement = movement.normalized;
+    }
+    private void Interaction()
+    {
+        // 채팅 입력 중의 키(기본 Space)는 글자 입력이다
+        if (!UIManager.Instance.CanInteract() || ChatInputFocus.IsFocused) return;
+
+        if (Input.GetKeyDown(KeySetting.keys[KeyAction.INTERACT]))
+        {
+            // 로비(RoomPlayer)에는 GamePlayer·Scanner가 없다. 로비 오브젝트(커스터마이징)만 확인한다
+            if (localPlayer == null)
+            {
+                CustomizeObject.TryInteract(transform.position);
+                return;
+            }
+
+            if (localPlayer.scanner == null) return;
+
+            var type = localPlayer.scanner.CurrentType;            
+
+            if (type == Scanner.ScanTargetType.Player)
+            {
+                uint targetNetId = localPlayer.scanner.CurrentTargetNetId;
+                if (targetNetId != 0)
+                {
+                    localPlayer.CmdAttack(targetNetId);
+                    return;
+                }
+            }
+            else if (type == Scanner.ScanTargetType.Corpse)
+            {
+                var corpse = localPlayer.scanner.CurrentTargetCorpse;
+                if (corpse != null)
+                {
+                    localPlayer.TryScanCorpse(corpse);
+                }
+            }
+            else if (type == Scanner.ScanTargetType.Mission)
+            {
+                var mission = localPlayer.scanner.CurrentMission;
+                if (mission != null && localPlayer.CanStartMissionType(mission.MissionType))
+                {
+                    localPlayer.TryStartMission(mission.MissionType);
+                    return;
+                }
+            }
+            else if (type == Scanner.ScanTargetType.Investigation)
+            {
+                var interact = localPlayer.scanner.CurrentInvestigation;
+                if (interact != null)
+                {
+                    localPlayer.TryStartInvestigation();
+                }
+            }
+            else if (type == Scanner.ScanTargetType.Disguise)
+            {
+                if (localPlayer.scanner.CurrentDisguise != null)
+                {
+                    localPlayer.TryStartDisguise();
+                }
+            }
+            else if (type == Scanner.ScanTargetType.Predict)
+            {
+                if (localPlayer.scanner.CurrentPredict != null)
+                {
+                    localPlayer.TryStartPredict();
+                }
+            }                                                                               
+        }
+    }
+
+
+    public void StopMove()
+    {
+        movement = Vector2.zero;
     }
 }

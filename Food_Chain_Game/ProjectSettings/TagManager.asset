@@ -2,23 +2,23 @@
 %TAG !u! tag:unity3d.com,2011:
 --- !u!78 &1
 TagManager:
-  serializedVersion: 2
+  serializedVersion: 3
   tags:
   - Wall
   layers:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - Occluder
   - Water
   - UI
   - UI_NoDrag
   - GamePlayer
-  - 
-  - 
-  - 
-  - 
-  - 
+  - Ghost
+  - Wall
+  - MapBoundary
+  - MissionObject
+  - Corpse
   - 
   - 
   - 
@@ -42,3 +42,17 @@ TagManager:
   - name: Default
     uniqueID: 0
     locked: 0
+  - name: World
+    uniqueID: 1327747261
+    locked: 0
+  - name: Entities
+    uniqueID: 498806473
+    locked: 0
+  - name: FOV
+    uniqueID: 4155572295
+    locked: 0
+  - name: WorldUI
+    uniqueID: 1304827213
+    locked: 0
+  m_RenderingLayers:
+  - Default
